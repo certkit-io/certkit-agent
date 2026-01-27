@@ -1,0 +1,13 @@
+services:
+  haproxy-agent:
+    build:
+      context: ../..
+      dockerfile: dev/haproxy/Dockerfile
+    hostname: "haproxy-box"
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    ports:
+      - "9447:443"
+    env_file:
+      - ./.env

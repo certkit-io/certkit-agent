@@ -1,0 +1,14 @@
+services:
+  litespeed-agent:
+    build:
+      context: ../..
+      dockerfile: dev/litespeed/Dockerfile
+    hostname: "litespeed-box"
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    ports:
+      - "9445:8443"
+      - "9446:7080"
+    env_file:
+      - ./.env

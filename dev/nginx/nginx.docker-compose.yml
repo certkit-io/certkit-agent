@@ -1,0 +1,13 @@
+services:
+  nginx-agent:
+    build:
+      context: ../..
+      dockerfile: dev/nginx/Dockerfile
+    hostname: "nginx-box"
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    ports:
+      - "9443:443"
+    env_file:
+      - ./.env

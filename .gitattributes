@@ -1,0 +1,7 @@
+# Set the default newline behaviour, in case people don't have core.autocrlf set (Read: Jordan Messes with global defaults)
+# This is supposedly the best way to normalize this.
+# https://help.github.com/articles/dealing-with-line-endings/
+* text=auto 
+
+# Shell scripts don't like windows line endings. So pulling the source on windows will cause shell scripts to break if run on WSL/Linux.
+*.sh text eol=lf

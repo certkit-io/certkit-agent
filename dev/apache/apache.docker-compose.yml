@@ -1,0 +1,13 @@
+services:
+  apache-agent:
+    build:
+      context: ../..
+      dockerfile: dev/apache/Dockerfile
+    hostname: "apache-box"
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    ports:
+      - "9444:443"
+    env_file:
+      - ./.env
