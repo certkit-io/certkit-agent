@@ -4,8 +4,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/certkit-io/certkit-agent-alpha/api"
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type HaproxyProvider struct{}

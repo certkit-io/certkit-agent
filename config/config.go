@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	agentCrypto "github.com/certkit-io/certkit-agent-alpha/crypto"
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	agentCrypto "github.com/certkit-io/certkit-agent/crypto"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 var CurrentConfig Config

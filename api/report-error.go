@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/certkit-io/certkit-agent-alpha/auth"
-	"github.com/certkit-io/certkit-agent-alpha/config"
+	"github.com/certkit-io/certkit-agent/auth"
+	"github.com/certkit-io/certkit-agent/config"
 )
 
 type AgentErrorReport struct {

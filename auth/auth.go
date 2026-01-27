@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 // ComputeBodySHA256Base64url hashes the exact bytes that will be sent.

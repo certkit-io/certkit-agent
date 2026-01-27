@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/certkit-io/certkit-agent-alpha/config"
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type RegisterAgentRequest struct {

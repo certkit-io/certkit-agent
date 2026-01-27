@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/certkit-io/certkit-agent-alpha/api"
-	"github.com/certkit-io/certkit-agent-alpha/config"
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 const (

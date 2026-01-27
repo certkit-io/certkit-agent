@@ -4,7 +4,7 @@ set -euo pipefail
 cd /app
 
 if [[ "${CERTKIT_AGENT_SOURCE:-local}" == "release" ]]; then
-  curl -fsSL https://raw.githubusercontent.com/certkit-io/certkit-agent-alpha/master/scripts/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/certkit-io/certkit-agent/master/scripts/install.sh | bash
   exec /usr/local/bin/certkit-agent run --config /app/dev/haproxy/config.json
 fi
 

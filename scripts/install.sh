@@ -7,7 +7,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 OWNER="certkit-io"
-REPO="certkit-agent-alpha"
+REPO="certkit-agent"
 
 BIN_NAME="certkit-agent"
 INSTALL_DIR="/usr/local/bin"

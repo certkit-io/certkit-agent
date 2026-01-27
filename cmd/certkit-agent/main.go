@@ -32,9 +32,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/certkit-io/certkit-agent-alpha/agent"
-	"github.com/certkit-io/certkit-agent-alpha/config"
-	"github.com/certkit-io/certkit-agent-alpha/utils"
+	"github.com/certkit-io/certkit-agent/agent"
+	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 const (

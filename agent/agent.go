@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/certkit-io/certkit-agent-alpha/api"
-	"github.com/certkit-io/certkit-agent-alpha/config"
-	"github.com/certkit-io/certkit-agent-alpha/inventory"
+	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/inventory"
 )
 
 var counter = 0
