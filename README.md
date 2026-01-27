@@ -6,7 +6,7 @@ The Certkit Agent runs directly on your hosts and manages the full certificate l
 
 ## Prerequisites
 
-- A [CertKit](https://app.certkit.io) account. You can register for a free trial [here](https://app.certkit.io).
+- A **[CertKit](https://app.certkit.io) account**. You can sign-up for a free trial [here](https://app.certkit.io/signup).
 - A **registration key** from your CertKit account (set via the `REGISTRATION_KEY` environment variable or in the config file)
 
 ## Install
@@ -28,7 +28,7 @@ The agent has two commands: `install` and `run`.
 
 ### `certkit-agent install`
 
-Writes a systemd unit file and starts the service. Must be run as root.
+Writes an initial bootstrap configuration, a systemd unit file and starts the service. Must be run as root.
 
 ```
 certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
