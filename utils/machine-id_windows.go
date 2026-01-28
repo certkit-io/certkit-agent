@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build windows
 
 package utils
 
@@ -10,10 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
-	// Change this to namespace identities per app
 	identityNamespace = "certkit-agent"
 )
 
@@ -24,17 +25,12 @@ func GetStableMachineID() (string, error) {
 		return id, nil
 	}
 
-	// 2. Linux machine-id (host-level)
-	if id, err := readAndHash("/etc/machine-id"); err == nil {
+	// 2. Windows MachineGuid (host-level)
+	if id, err := readMachineGuid(); err == nil {
 		return id, nil
 	}
 
-	// 3. Container cgroup ID (container-level)
-	if id, err := containerID(); err == nil {
-		return id, nil
-	}
-
-	// 4. Absolute fallback: generate & persist
+	// 3. Absolute fallback: generate & persist
 	return generateAndPersistID()
 }
 
@@ -75,38 +71,22 @@ func generateAndPersistID() (string, error) {
 	return id, nil
 }
 
-func readAndHash(path string) (string, error) {
-	b, err := os.ReadFile(path)
+func readMachineGuid() (string, error) {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Cryptography`, registry.QUERY_VALUE)
 	if err != nil {
 		return "", err
 	}
-	s := strings.TrimSpace(string(b))
-	if s == "" {
-		return "", errors.New("empty id source")
-	}
-	return hashWithNamespace(s), nil
-}
+	defer key.Close()
 
-func containerID() (string, error) {
-	b, err := os.ReadFile("/proc/self/cgroup")
+	guid, _, err := key.GetStringValue("MachineGuid")
 	if err != nil {
 		return "", err
 	}
-
-	lines := strings.Split(string(b), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "/docker/") ||
-			strings.Contains(line, "/kubepods/") ||
-			strings.Contains(line, "/containerd/") {
-
-			parts := strings.Split(line, "/")
-			id := parts[len(parts)-1]
-			if len(id) >= 12 {
-				return hashWithNamespace(id), nil
-			}
-		}
+	guid = strings.TrimSpace(guid)
+	if guid == "" {
+		return "", errors.New("empty MachineGuid")
 	}
-	return "", errors.New("no container id found")
+	return hashWithNamespace(guid), nil
 }
 
 func hashWithNamespace(value string) string {
@@ -115,17 +95,14 @@ func hashWithNamespace(value string) string {
 }
 
 func persistentIDPath() string {
-	// Override with env if desired
 	if p := os.Getenv("AGENT_ID_PATH"); p != "" {
 		return p
 	}
 
-	// Linux / containers
-	if os.Geteuid() == 0 {
-		return "/var/lib/certkit/agent-id"
+	programData := os.Getenv("ProgramData")
+	if programData == "" {
+		programData = `C:\ProgramData`
 	}
 
-	// User mode fallback
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".certkit", "agent-id")
+	return filepath.Join(programData, "CertKit", "agent-id")
 }
