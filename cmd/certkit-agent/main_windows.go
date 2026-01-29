@@ -110,13 +110,16 @@ func installCmd(args []string) {
 	} else {
 		defer svcObj.Close()
 		binLine := fmt.Sprintf(`"%s" run --service --config "%s"`, exe, *configPath)
-		if err := svcObj.UpdateConfig(mgr.Config{
-			DisplayName:      *serviceName,
-			StartType:        mgr.StartAutomatic,
-			ServiceStartName: "LocalSystem",
-			BinaryPathName:   binLine,
-			Description:      defaultServiceDescription,
-		}); err != nil {
+		current, err := svcObj.Config()
+		if err != nil {
+			log.Fatalf("failed to read service config %s: %v", *serviceName, err)
+		}
+		current.DisplayName = *serviceName
+		current.StartType = mgr.StartAutomatic
+		current.ServiceStartName = "LocalSystem"
+		current.BinaryPathName = binLine
+		current.Description = defaultServiceDescription
+		if err := svcObj.UpdateConfig(current); err != nil {
 			log.Fatalf("failed to update service %s: %v", *serviceName, err)
 		}
 	}
@@ -136,7 +139,7 @@ func installCmd(args []string) {
 	}
 
 	machineId, _ := utils.GetStableMachineID()
-	log.Printf("✅ Installed and started %s on machine: %s", *serviceName, machineId)
+	log.Printf("Installed and started %s on machine: %s", *serviceName, machineId)
 	log.Printf("   Get-Service %s", *serviceName)
 	log.Printf("Service runs as LocalSystem for LocalMachine cert store access.")
 }
@@ -150,6 +153,7 @@ func runCmd(args []string) {
 
 	isService, err := svc.IsWindowsService()
 	if *forceService || (err == nil && isService) {
+		log.Printf("Running as windows service...")
 		runWindowsService(*serviceName, *configPath)
 		return
 	}
@@ -182,6 +186,8 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
 
 	changes <- svc.Status{State: svc.StartPending}
+
+	initServiceLogging(s.configPath)
 
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
@@ -237,6 +243,18 @@ func isElevatedAdmin() (bool, error) {
 	return true, nil
 }
 
+func initServiceLogging(configPath string) {
+	logFile := filepath.Join(filepath.Dir(configPath), "certkit-agent.log")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(f)
+}
+
 func configureRecovery(serviceName string) error {
 	// Restart after 5s on first/second/subsequent failures; reset failure count after 1 day.
 	return runCmdLogged("sc.exe", "failure", serviceName, "reset=86400", "actions=restart/5000/restart/5000/restart/5000")
@@ -249,7 +267,7 @@ func runCmdLogged(name string, args ...string) error {
 	cmd.Stderr = &out
 	err := cmd.Run()
 	if out.Len() > 0 {
-		log.Printf("%s %s:\n%s", name, strings.Join(args, " "), strings.TrimSpace(out.String()))
+		log.Printf("Ran command: %s %s:\n%s", name, strings.Join(args, " "), strings.TrimSpace(out.String()))
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))

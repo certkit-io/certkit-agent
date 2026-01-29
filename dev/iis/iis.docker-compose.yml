@@ -1,6 +1,7 @@
 services:
   iis-agent:
     isolation: hyperv
+    hostname: "iis-box"
     build:
       context: ../..
       dockerfile: dev/iis/Dockerfile
@@ -16,3 +17,4 @@ services:
       CERTKIT_AGENT_BINARY: ${CERTKIT_AGENT_BINARY:-C:\\opt\\certkit-agent\\certkit-agent.exe}
     ports:
       - "8080:80"
+      - "8443:443"

@@ -58,3 +58,4 @@ If you see a Windows image/host version mismatch, `build-and-run.ps1` sets `COMP
 - This is a dev-only setup; Windows service behavior inside containers is not a 1:1 match with a full VM/host.
 - If you need a fuller Windows environment, use a Windows VM and run the agent installer there.
 - You can override the base image by setting `CERTKIT_WINDOWS_BASE_IMAGE` in your environment.
+

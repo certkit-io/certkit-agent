@@ -109,7 +109,7 @@ func installCmd(args []string) {
 	}
 
 	machineId, _ := utils.GetStableMachineID()
-	log.Printf("✅ Installed and started %s (unit: %s) on machine: %s", *serviceName, unitPath, machineId)
+	log.Printf("Installed and started %s (unit: %s) on machine: %s", *serviceName, unitPath, machineId)
 	log.Printf("   systemctl status %s.service", *serviceName)
 }
 
