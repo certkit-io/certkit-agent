@@ -23,6 +23,17 @@ if ($source -eq "release") {
     throw "Unsupported CERTKIT_AGENT_SOURCE: $source"
 }
 
+Import-Module WebAdministration
+$siteName = "Default Web Site"
+$httpsBinding = Get-WebBinding -Name $siteName -Protocol "https" -ErrorAction SilentlyContinue
+if (-not $httpsBinding) {
+    $cert = New-SelfSignedCertificate -DnsName @("iis-box", "localhost") -CertStoreLocation "Cert:\\LocalMachine\\My"
+    New-WebBinding -Name $siteName -Protocol "https" -Port 443 -IPAddress "*"
+    $binding = Get-WebBinding -Name $siteName -Protocol "https"
+    $binding.AddSslCertificate($cert.Thumbprint, "MY")
+    Write-Host "Added HTTPS binding with self-signed cert ($($cert.Thumbprint))."
+}
+
 Start-Service W3SVC
 
 $stopServices = {
