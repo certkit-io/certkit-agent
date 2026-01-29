@@ -19,6 +19,7 @@ From repo root:
 ```powershell
 $env:CERTKIT_API_BASE="YOUR_API_BASE"
 $env:REGISTRATION_KEY="YOUR_REGISTRATION_KEY"
+$env:CERTKIT_VERSION="v1.2.3"  # optional; defaults to latest
 $env:CERTKIT_AGENT_SOURCE="release"
 $env:CERTKIT_WINDOWS_BASE_IMAGE="mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019"
 
@@ -46,12 +47,14 @@ docker compose -f dev\iis\iis.docker-compose.yml -f dev\iis\iis.local.docker-com
 From `dev\iis`:
 
 ```powershell
-.\build-and-run.ps1 -ApiBase "YOUR_API_BASE" -RegistrationKey "YOUR_REGISTRATION_KEY"
+.\build-and-run-local.ps1 -ApiBase "YOUR_API_BASE" -RegistrationKey "YOUR_REGISTRATION_KEY"
+.\run-release.ps1 -ApiBase "YOUR_API_BASE" -RegistrationKey "YOUR_REGISTRATION_KEY"
+.\run-release.ps1 -ApiBase "YOUR_API_BASE" -RegistrationKey "YOUR_REGISTRATION_KEY" -Version "v1.2.3"
 ```
 
-If you see a Windows image/host version mismatch, `build-and-run.ps1` sets `COMPOSE_COMPATIBILITY=1` so Docker honors `isolation: hyperv`.
+If you see a Windows image/host version mismatch, `build-and-run-local.ps1` and `run-release.ps1` set `COMPOSE_COMPATIBILITY=1` so Docker honors `isolation: hyperv`.
 
-`build-and-run.ps1` defaults `CERTKIT_WINDOWS_BASE_IMAGE` to `mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019`.
+`build-and-run-local.ps1` and `run-release.ps1` default `CERTKIT_WINDOWS_BASE_IMAGE` to `mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019`.
 
 ## Notes
 - The container installs the service as **LocalSystem** for LocalMachine cert store access.

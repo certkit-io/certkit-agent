@@ -3,11 +3,16 @@ $ErrorActionPreference = "Stop"
 $serviceName = if ($env:CERTKIT_SERVICE_NAME) { $env:CERTKIT_SERVICE_NAME } else { "certkit-agent" }
 $configPath = if ($env:CERTKIT_CONFIG_PATH) { $env:CERTKIT_CONFIG_PATH } else { "C:\\ProgramData\\CertKit\\certkit-agent\\config.json" }
 $source = if ($env:CERTKIT_AGENT_SOURCE) { $env:CERTKIT_AGENT_SOURCE } else { "release" }
+$version = $env:CERTKIT_VERSION
 
 Write-Host "Starting IIS + CertKit Agent (source=$source)"
 
 if ($source -eq "release") {
-    & C:\app\install.ps1 -ServiceName $serviceName -ConfigPath $configPath
+    if ($version) {
+        & C:\app\install.ps1 -ServiceName $serviceName -ConfigPath $configPath -Version $version
+    } else {
+        & C:\app\install.ps1 -ServiceName $serviceName -ConfigPath $configPath
+    }
 } elseif ($source -eq "local") {
     $bin = if ($env:CERTKIT_AGENT_BINARY) { $env:CERTKIT_AGENT_BINARY } else { "C:\\opt\\certkit-agent\\certkit-agent.exe" }
     if (-not (Test-Path $bin)) {
@@ -27,13 +32,7 @@ $stopServices = {
 }
 
 try {
-    if (Test-Path "C:\\ServiceMonitor.exe") {
-        Write-Host "IIS started. Following w3svc with ServiceMonitor."
-        & C:\ServiceMonitor.exe w3svc
-    } else {
-        Write-Host "IIS started. ServiceMonitor not found; keeping container alive."
-        while ($true) { Start-Sleep -Seconds 60 }
-    }
+    powershell -NoProfile -Command "Get-Content C:\dev\iis\certkit-agent.log -Tail 20 -Wait"
 } finally {
     & $stopServices
 }
