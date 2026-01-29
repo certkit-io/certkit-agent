@@ -34,7 +34,7 @@ func UpdateInventory(items []InventoryItem) error {
 		Items: items,
 	}
 
-	log.Printf("Inventory: %v", payload)
+	log.Printf("Auto-discovered software: %v", payload)
 
 	requestBody, err := json.Marshal(payload)
 	if err != nil {

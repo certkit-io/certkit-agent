@@ -10,8 +10,9 @@ import (
 )
 
 func runAgent(configPath string, stopCh <-chan struct{}) {
-	log.Printf("certkit-agent run starting (config=%s)", configPath)
+	log.Printf("certkit-agent run starting...")
 	log.Printf("certkit-agent version: %s, commit: %s, date: %s", version, commit, date)
+	log.Printf("certkit-agent using config: %s", configPath)
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		log.Printf("Config not found, creating %s", configPath)
