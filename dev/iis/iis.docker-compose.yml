@@ -13,8 +13,12 @@ services:
       REGISTRATION_KEY: ${REGISTRATION_KEY}
       CERTKIT_AGENT_SOURCE: ${CERTKIT_AGENT_SOURCE:-release}
       CERTKIT_SERVICE_NAME: ${CERTKIT_SERVICE_NAME:-certkit-agent}
-      CERTKIT_CONFIG_PATH: ${CERTKIT_CONFIG_PATH:-C:\\ProgramData\\CertKit\\certkit-agent\\config.json}
+      CERTKIT_CONFIG_PATH: ${CERTKIT_CONFIG_PATH:-C:\\dev\\iis\\config.json}
       CERTKIT_AGENT_BINARY: ${CERTKIT_AGENT_BINARY:-C:\\opt\\certkit-agent\\certkit-agent.exe}
     ports:
       - "8080:80"
       - "8443:443"
+    volumes:
+      - type: bind
+        source: .
+        target: C:\dev\iis

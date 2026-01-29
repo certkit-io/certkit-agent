@@ -55,6 +55,7 @@ If you see a Windows image/host version mismatch, `build-and-run.ps1` sets `COMP
 
 ## Notes
 - The container installs the service as **LocalSystem** for LocalMachine cert store access.
+- The default config path in this stack is `C:\dev\iis\config.json`, which is bind-mounted to `dev\iis\config.json` on the host.
 - This is a dev-only setup; Windows service behavior inside containers is not a 1:1 match with a full VM/host.
 - If you need a fuller Windows environment, use a Windows VM and run the agent installer there.
 - You can override the base image by setting `CERTKIT_WINDOWS_BASE_IMAGE` in your environment.
