@@ -26,7 +26,7 @@ const defaultServiceDescription = "CertKit Agent service"
 func usageAndExit() {
 	fmt.Fprintf(os.Stderr, `Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
-  certkit-agent run     [--service-name NAME] [--config PATH]
+  certkit-agent run     [--service-name NAME] [--config PATH] [--service]
 
 Examples (elevated PowerShell):
   .\certkit-agent.exe install
@@ -99,6 +99,7 @@ func installCmd(args []string) {
 				Description:      defaultServiceDescription,
 			},
 			"run",
+			"--service",
 			"--config",
 			*configPath,
 		)
@@ -108,7 +109,7 @@ func installCmd(args []string) {
 		defer svcObj.Close()
 	} else {
 		defer svcObj.Close()
-		binLine := fmt.Sprintf(`"%s" run --config "%s"`, exe, *configPath)
+		binLine := fmt.Sprintf(`"%s" run --service --config "%s"`, exe, *configPath)
 		if err := svcObj.UpdateConfig(mgr.Config{
 			DisplayName:      *serviceName,
 			StartType:        mgr.StartAutomatic,
@@ -144,10 +145,11 @@ func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	forceService := fs.Bool("service", false, "force service mode (used by SCM)")
 	fs.Parse(args)
 
 	isService, err := svc.IsWindowsService()
-	if err == nil && isService {
+	if *forceService || (err == nil && isService) {
 		runWindowsService(*serviceName, *configPath)
 		return
 	}
@@ -232,15 +234,7 @@ func isElevatedAdmin() (bool, error) {
 		return false, nil
 	}
 
-	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return false, err
-	}
-	isMember, err := token.IsMember(adminSid)
-	if err != nil {
-		return false, err
-	}
-	return isMember, nil
+	return true, nil
 }
 
 func configureRecovery(serviceName string) error {

@@ -7,4 +7,6 @@ $composeLocal = Join-Path $scriptDir "iis.local.docker-compose.yml"
 $env:COMPOSE_COMPATIBILITY = "1"
 
 Write-Host "Stopping Windows IIS dev stack via docker compose"
-& docker compose -f $composeBase -f $composeLocal down --remove-orphans
+& docker compose -f $composeBase -f $composeLocal stop
+Start-Sleep -Seconds 5
+& docker compose -f $composeBase -f $composeLocal down --remove-orphans --timeout 30

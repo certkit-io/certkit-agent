@@ -20,10 +20,20 @@ if ($source -eq "release") {
 
 Start-Service W3SVC
 
-if (Test-Path "C:\\ServiceMonitor.exe") {
-    Write-Host "IIS started. Following w3svc with ServiceMonitor."
-    & C:\ServiceMonitor.exe w3svc
-} else {
-    Write-Host "IIS started. ServiceMonitor not found; keeping container alive."
-    while ($true) { Start-Sleep -Seconds 60 }
+$stopServices = {
+    Write-Host "Stopping services..."
+    try { Stop-Service $serviceName -Force -ErrorAction SilentlyContinue } catch {}
+    try { Stop-Service W3SVC -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+try {
+    if (Test-Path "C:\\ServiceMonitor.exe") {
+        Write-Host "IIS started. Following w3svc with ServiceMonitor."
+        & C:\ServiceMonitor.exe w3svc
+    } else {
+        Write-Host "IIS started. ServiceMonitor not found; keeping container alive."
+        while ($true) { Start-Sleep -Seconds 60 }
+    }
+} finally {
+    & $stopServices
 }
