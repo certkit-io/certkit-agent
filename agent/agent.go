@@ -35,7 +35,6 @@ func DoWork() {
 		}
 		counter++
 	}
-	log.Printf("certkit-agent alive")
 }
 
 func NeedsRegistration() bool {
@@ -71,8 +70,6 @@ func PollForConfiguration() (configChanged bool, err error) {
 	if err != nil {
 		return false, err
 	}
-
-	log.Printf("Poll response: %v", response)
 
 	if response == nil {
 		return false, nil
