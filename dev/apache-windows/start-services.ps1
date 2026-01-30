@@ -7,6 +7,11 @@ $version = $env:CERTKIT_VERSION
 
 Write-Host "Starting Apache + CertKit Agent (source=$source)"
 
+$agentIdPath = "C:\\ProgramData\\CertKit\\agent-id"
+$agentId = "7f3d2c91-3b78-4e12-9b21-8e6e0f4b0c75"
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $agentIdPath) | Out-Null
+Set-Content -Path $agentIdPath -Value $agentId -Encoding ASCII
+
 if ($source -eq "release") {
     if ($version) {
         & C:\app\install.ps1 -ServiceName $serviceName -ConfigPath $configPath -Version $version

@@ -1,7 +1,7 @@
 services:
   apache-windows:
     isolation: hyperv
-    hostname: "apache-box"
+    hostname: "apache-windows-box"
     build:
       context: ../..
       dockerfile: dev/apache-windows/Dockerfile

@@ -7,6 +7,11 @@ $version = $env:CERTKIT_VERSION
 
 Write-Host "Starting IIS + CertKit Agent (source=$source)"
 
+$agentIdPath = "C:\\ProgramData\\CertKit\\agent-id"
+$agentId = "9b8c6baf-9c28-4c0a-8af1-1f2cc45e7b1a"
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $agentIdPath) | Out-Null
+Set-Content -Path $agentIdPath -Value $agentId -Encoding ASCII
+
 if ($source -eq "release") {
     if ($version) {
         & C:\app\install.ps1 -ServiceName $serviceName -ConfigPath $configPath -Version $version
