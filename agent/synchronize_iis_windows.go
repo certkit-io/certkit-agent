@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
@@ -141,7 +141,8 @@ Import-Module WebAdministration
 $thumb = '%s'
 Test-Path ("Cert:\LocalMachine\My\" + $thumb)
 `, escapePowerShellString(thumbprint))
-	out, err := runPowerShell(script)
+	out, err := utils.RunPowerShell(script)
+	logPowerShellOutput("certInStore", out)
 	if err != nil {
 		return false, err
 	}
@@ -154,7 +155,8 @@ Import-Module WebAdministration
 $pwd = ConvertTo-SecureString -String '%s' -AsPlainText -Force
 Import-PfxCertificate -FilePath '%s' -CertStoreLocation 'Cert:\LocalMachine\My' -Password $pwd | Out-Null
 `, escapePowerShellString(password), escapePowerShellString(pfxPath))
-	_, err := runPowerShell(script)
+	out, err := utils.RunPowerShell(script)
+	logPowerShellOutput("importPfxToStore", out)
 	return err
 }
 
@@ -186,7 +188,6 @@ foreach ($binding in @($bindings)) {
 
     Write-Host "Updating $site ($($binding.bindingInformation)) -> $newThumb..."
 
-    if ($currentThumbprint) { $binding.RemoveSslCertificate() }
     $binding.AddSslCertificate($newThumb, "My")
 
     # Optional cleanup: remove previous cert from LocalMachine\My
@@ -201,19 +202,19 @@ foreach ($binding in @($bindings)) {
 
 Write-Host "IIS bindings updated."
 `, escapePowerShellString(siteName), escapePowerShellString(port), escapePowerShellString(thumbprint))
-	_, err := runPowerShell(script)
+	out, err := utils.RunPowerShell(script)
+	logPowerShellOutput("applyIISBinding", out)
 	return err
-}
-
-func runPowerShell(script string) (string, error) {
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
 }
 
 func escapePowerShellString(value string) string {
 	return strings.ReplaceAll(value, "'", "''")
+}
+
+func logPowerShellOutput(name, output string) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return
+	}
+	log.Printf("PowerShell (%s): %s", name, output)
 }

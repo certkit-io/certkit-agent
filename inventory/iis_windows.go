@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os/exec"
 	"strings"
 
 	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type IISProvider struct{}
@@ -77,20 +77,13 @@ Import-Module WebAdministration
     Select-Object -First 10
 ) | ConvertTo-Json
 `
-	cmd := exec.Command(
-		"powershell",
-		"-NoProfile",
-		"-Command",
-		script,
-	)
-	out, err := cmd.Output()
-
+	out, err := utils.RunPowerShell(script)
 	if err != nil {
 		log.Printf("IIS SSL bindings lookup via PowerShell failed: %v", err)
 		return nil, false
 	}
 
-	raw := strings.TrimSpace(string(out))
+	raw := strings.TrimSpace(out)
 
 	log.Print(raw)
 	if raw == "" || raw == "null" {
