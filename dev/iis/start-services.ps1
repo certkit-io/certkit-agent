@@ -24,15 +24,48 @@ if ($source -eq "release") {
 }
 
 Import-Module WebAdministration
-$siteName = "Default Web Site"
-$httpsBinding = Get-WebBinding -Name $siteName -Protocol "https" -ErrorAction SilentlyContinue
-if (-not $httpsBinding) {
-    $cert = New-SelfSignedCertificate -DnsName @("iis-box", "localhost") -CertStoreLocation "Cert:\\LocalMachine\\My"
-    New-WebBinding -Name $siteName -Protocol "https" -Port 443 -IPAddress "*"
-    $binding = Get-WebBinding -Name $siteName -Protocol "https"
-    $binding.AddSslCertificate($cert.Thumbprint, "MY")
-    Write-Host "Added HTTPS binding with self-signed cert ($($cert.Thumbprint))."
+$cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.FriendlyName -eq "Certkit Dev" } | Select-Object -First 1
+if (-not $cert) {
+    $cert = New-SelfSignedCertificate -DnsName @("iis-box", "localhost", "test.certkit.io") -CertStoreLocation "Cert:\\LocalMachine\\My" -FriendlyName "Certkit Dev"
 }
+
+$defaultSite = "Default Web Site"
+$httpsBinding = Get-WebBinding -Name $defaultSite -Protocol "https" -ErrorAction SilentlyContinue
+if (-not $httpsBinding) {
+    New-WebBinding -Name $defaultSite -Protocol "https" -Port 443 -IPAddress "*"
+    $binding = Get-WebBinding -Name $defaultSite -Protocol "https" | Select-Object -First 1
+    $binding.AddSslCertificate($cert.Thumbprint, "MY")
+    Write-Host "Added HTTPS binding for $defaultSite ($($cert.Thumbprint))."
+}
+
+$certkitSite = "Certkit Web Site"
+$certkitPath = "C:\\inetpub\\certkit"
+if (-not (Test-Path $certkitPath)) {
+    New-Item -ItemType Directory -Force -Path $certkitPath | Out-Null
+}
+if (-not (Get-Website -Name $certkitSite -ErrorAction SilentlyContinue)) {
+    New-Website -Name $certkitSite -PhysicalPath $certkitPath -Port 80 -HostHeader "test.certkit.io" | Out-Null
+    Get-WebBinding -Name $certkitSite -Protocol "http" -ErrorAction SilentlyContinue | Remove-WebBinding
+}
+$certkitBinding = Get-WebBinding -Name $certkitSite -Protocol "https" -ErrorAction SilentlyContinue |
+    Where-Object { $_.bindingInformation -like "*:44300:test.certkit.io" } |
+    Select-Object -First 1
+if (-not $certkitBinding) {
+    New-WebBinding -Name $certkitSite -Protocol "https" -Port 44300 -HostHeader "test.certkit.io" -IPAddress "*" -SslFlags 1
+} else {
+    Set-WebBinding -Name $certkitSite -Protocol "https" -Port 44300 -HostHeader "test.certkit.io" -PropertyName "sslFlags" -Value 1
+}
+$sslBindingPath = "IIS:\\SslBindings\\0.0.0.0!44300!test.certkit.io"
+if (-not (Test-Path $sslBindingPath)) {
+    $sslBindingPath = "IIS:\\SslBindings\\*!44300!test.certkit.io"
+}
+if (-not (Test-Path $sslBindingPath)) {
+    New-Item $sslBindingPath -Thumbprint $cert.Thumbprint -SSLFlags 1 | Out-Null
+} else {
+    Set-ItemProperty -Path $sslBindingPath -Name Thumbprint -Value $cert.Thumbprint
+    Set-ItemProperty -Path $sslBindingPath -Name SSLFlags -Value 1
+}
+Write-Host "Added HTTPS binding for $certkitSite ($($cert.Thumbprint))."
 
 Start-Service W3SVC
 

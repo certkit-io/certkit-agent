@@ -36,8 +36,8 @@ func normalizeDomain(token string) (string, bool) {
 	token = strings.Trim(token, ",")
 	token = strings.TrimSuffix(token, ";")
 	token = stripPort(token)
-	if strings.HasPrefix(token, "*.") {
-		token = strings.TrimPrefix(token, "*.")
+	if after, ok := strings.CutPrefix(token, "*."); ok {
+		token = after
 	}
 	if token == "" || strings.Contains(token, "*") {
 		return "", false

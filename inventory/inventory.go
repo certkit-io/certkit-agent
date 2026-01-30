@@ -15,12 +15,7 @@ type Provider interface {
 }
 
 func Collect() ([]api.InventoryItem, error) {
-	providers := []Provider{
-		NginxProvider{},
-		ApacheProvider{},
-		LitespeedProvider{},
-		HaproxyProvider{},
-	}
+	providers := getProviders()
 
 	items := make([]api.InventoryItem, 0)
 	for _, provider := range providers {
