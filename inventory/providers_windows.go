@@ -5,5 +5,6 @@ package inventory
 func getProviders() []Provider {
 	return []Provider{
 		IISProvider{},
+		ApacheProvider{},
 	}
 }

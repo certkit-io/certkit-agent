@@ -3,6 +3,7 @@ package inventory
 import (
 	"log"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -16,15 +17,7 @@ func (ApacheProvider) Name() string {
 }
 
 func (ApacheProvider) Collect() ([]api.InventoryItem, error) {
-	configFiles, err := expandConfigGlobs([]string{
-		"/etc/apache2/apache2.conf",
-		"/etc/apache2/conf-enabled/*.conf",
-		"/etc/apache2/sites-enabled/*",
-		"/etc/apache2/sites-available/*",
-		"/etc/httpd/conf/httpd.conf",
-		"/etc/httpd/conf.d/*.conf",
-		"/usr/local/etc/apache24/httpd.conf",
-	})
+	configFiles, err := expandConfigGlobs(apacheConfigGlobs())
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +46,37 @@ func (ApacheProvider) Collect() ([]api.InventoryItem, error) {
 	}
 
 	return items, nil
+}
+
+func apacheConfigGlobs() []string {
+	if runtime.GOOS == "windows" {
+		return []string{
+			`C:\Apache24\conf\httpd.conf`,
+			`C:\Apache24\conf\extra\*.conf`,
+			`C:\Apache24\conf\sites-enabled\*`,
+			`C:\Apache2\conf\httpd.conf`,
+			`C:\Apache2\conf\extra\*.conf`,
+			`C:\Apache2\conf\sites-enabled\*`,
+			`C:\Apache\conf\httpd.conf`,
+			`C:\Apache\conf\extra\*.conf`,
+			`C:\Program Files\Apache Group\Apache2\conf\httpd.conf`,
+			`C:\Program Files\Apache Group\Apache2\conf\extra\*.conf`,
+			`C:\Program Files\Apache24\conf\httpd.conf`,
+			`C:\Program Files\Apache24\conf\extra\*.conf`,
+			`C:\httpd\conf\httpd.conf`,
+			`C:\httpd\conf\extra\*.conf`,
+		}
+	}
+
+	return []string{
+		"/etc/apache2/apache2.conf",
+		"/etc/apache2/conf-enabled/*.conf",
+		"/etc/apache2/sites-enabled/*",
+		"/etc/apache2/sites-available/*",
+		"/etc/httpd/conf/httpd.conf",
+		"/etc/httpd/conf.d/*.conf",
+		"/usr/local/etc/apache24/httpd.conf",
+	}
 }
 
 func parseApacheConfig(path string) ([]string, []string, []string, error) {
