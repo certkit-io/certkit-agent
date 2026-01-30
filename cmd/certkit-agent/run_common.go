@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/agent"
@@ -41,4 +45,19 @@ func runAgent(configPath string, stopCh <-chan struct{}) {
 			agent.DoWork()
 		}
 	}
+}
+
+func runCmdLogged(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if out.Len() > 0 {
+		log.Printf("Ran command: %s %s:\n%s", name, strings.Join(args, " "), strings.TrimSpace(out.String()))
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
+	}
+	return nil
 }

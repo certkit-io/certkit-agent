@@ -3,15 +3,12 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/utils"
@@ -258,19 +255,4 @@ func initServiceLogging(configPath string) {
 func configureRecovery(serviceName string) error {
 	// Restart after 5s on first/second/subsequent failures; reset failure count after 1 day.
 	return runCmdLogged("sc.exe", "failure", serviceName, "reset=86400", "actions=restart/5000/restart/5000/restart/5000")
-}
-
-func runCmdLogged(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	if out.Len() > 0 {
-		log.Printf("Ran command: %s %s:\n%s", name, strings.Join(args, " "), strings.TrimSpace(out.String()))
-	}
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
-	}
-	return nil
 }

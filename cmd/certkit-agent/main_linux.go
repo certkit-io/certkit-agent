@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -179,22 +178,6 @@ func shellEscape(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return `"` + s + `"`
-}
-
-func runCmdLogged(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	if out.Len() > 0 {
-		log.Printf("%s %s:\n%s", name, strings.Join(args, " "), strings.TrimSpace(out.String()))
-	}
-	if err != nil {
-		// Return a cleaner error with captured output.
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
-	}
-	return nil
 }
 
 // If you want to give a nicer error when systemctl isn't present.
