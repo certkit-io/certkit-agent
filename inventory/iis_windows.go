@@ -30,7 +30,7 @@ func (IISProvider) Collect() ([]api.InventoryItem, error) {
 		if value, ok := normalizeDomain(binding.Host); ok {
 			domains = append(domains, value)
 		}
-		log.Printf("Binding: %v", binding)
+
 		pemPath := fmt.Sprintf("%s:%d", binding.Site, binding.Port)
 
 		items = append(items, api.InventoryItem{
@@ -85,7 +85,6 @@ Import-Module WebAdministration
 
 	raw := strings.TrimSpace(out)
 
-	log.Print(raw)
 	if raw == "" || raw == "null" {
 		return nil, true
 	}
