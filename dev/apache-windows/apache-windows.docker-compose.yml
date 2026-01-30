@@ -1,0 +1,24 @@
+services:
+  apache-windows:
+    isolation: hyperv
+    hostname: "apache-box"
+    build:
+      context: ../..
+      dockerfile: dev/apache-windows/Dockerfile
+      args:
+        BASE_IMAGE: ${CERTKIT_WINDOWS_BASE_IMAGE:-mcr.microsoft.com/windows/servercore:ltsc2019}
+        APACHE_ZIP_URL: ${CERTKIT_APACHE_ZIP_URL:-https://www.apachelounge.com/download/VC17/binaries/httpd-2.4.58-win64-VS17.zip}
+    image: certkit-agent-apache-windows:dev
+    environment:
+      CERTKIT_API_BASE: ${CERTKIT_API_BASE}
+      REGISTRATION_KEY: ${REGISTRATION_KEY}
+      CERTKIT_AGENT_SOURCE: ${CERTKIT_AGENT_SOURCE:-release}
+      CERTKIT_SERVICE_NAME: ${CERTKIT_SERVICE_NAME:-certkit-agent}
+      CERTKIT_CONFIG_PATH: ${CERTKIT_CONFIG_PATH:-C:\\dev\\apache-windows\\config.json}
+      CERTKIT_AGENT_BINARY: ${CERTKIT_AGENT_BINARY:-C:\\opt\\certkit-agent\\certkit-agent.exe}
+    ports:
+      - "9444:443"
+    volumes:
+      - type: bind
+        source: .
+        target: C:\dev\apache-windows

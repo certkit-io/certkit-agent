@@ -1,0 +1,9 @@
+services:
+  apache-windows:
+    environment:
+      CERTKIT_AGENT_SOURCE: local
+      CERTKIT_AGENT_BINARY: C:\\opt\\certkit-agent\\certkit-agent_windows_amd64.exe
+    volumes:
+      - type: bind
+        source: ../../dist/bin
+        target: C:\opt\certkit-agent
