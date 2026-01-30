@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/utils"
@@ -121,7 +122,7 @@ func installCmd(args []string) {
 		}
 	}
 
-	if err := configureRecovery(*serviceName); err != nil {
+	if err := configureRecovery(svcObj); err != nil {
 		log.Fatalf("failed to configure service recovery: %v", err)
 	}
 
@@ -252,7 +253,11 @@ func initServiceLogging(configPath string) {
 	log.SetOutput(f)
 }
 
-func configureRecovery(serviceName string) error {
+func configureRecovery(s *mgr.Service) error {
 	// Restart after 5s on first/second/subsequent failures; reset failure count after 1 day.
-	return runCmdLogged("sc.exe", "failure", serviceName, "reset=86400", "actions=restart/5000/restart/5000/restart/5000")
+	return s.SetRecoveryActions([]mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+	}, 86400) // reset failure count after 1 day
 }
