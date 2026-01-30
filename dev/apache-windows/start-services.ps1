@@ -122,10 +122,22 @@ $sslConf = @"
 Set-Content -Path (Join-Path $apacheHome "conf\\httpd.conf") -Value $httpdConf -Encoding UTF8
 Set-Content -Path (Join-Path $apacheHome "conf\\extra\\httpd-ssl.conf") -Value $sslConf -Encoding UTF8
 
-& (Join-Path $apacheHome "bin\\httpd.exe") -t
+
+$ApacheRoot = "C:\Apache24"
+$HttpdExe   = Join-Path $ApacheRoot "bin\httpd.exe"
+
+# Optional sanity checks
+Test-Path $HttpdExe | Out-Null
+
+# Install service (creates the Windows service entry)
+& $HttpdExe -k install -n "Apache24"
+
+# Make it auto-start (optional; in containers you often start it manually)
+sc.exe config "Apache24" start= auto
+
+Start-Service -Name "Apache24"
 
 try {
-    & (Join-Path $apacheHome "bin\\httpd.exe") -DFOREGROUND
     powershell -NoProfile -Command "Get-Content C:\dev\apache-windows\certkit-agent.log -Tail 20 -Wait"
 } finally {
     try { Stop-Service $serviceName -Force -ErrorAction SilentlyContinue } catch {}
