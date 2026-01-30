@@ -49,6 +49,10 @@ func SynchronizeCertificates(configChanged bool) []api.AgentConfigStatusUpdate {
 }
 
 func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+	if strings.EqualFold(cfg.ConfigType, "iis") {
+		return synchronizeIISCertificate(cfg, configChanged)
+	}
+
 	log.Printf("Beginning synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,

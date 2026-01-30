@@ -51,6 +51,8 @@ type CertificateConfiguration struct {
 	UpdateCmd                   string     `json:"update_cmd,omitempty"`
 	Name                        string     `json:"name,omitempty"`
 	AllInOne                    bool       `json:"all_in_one,omitempty"`
+	IsPfx                       bool       `json:"is_pfx"`
+	ConfigType                  string     `json:"config_type"`
 }
 
 type VersionInfo struct {
