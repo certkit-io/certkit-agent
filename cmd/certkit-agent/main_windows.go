@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -241,6 +242,11 @@ func isElevatedAdmin() (bool, error) {
 	return true, nil
 }
 
+const (
+	maxLogSize = 5 * 1024 * 1024 // trigger rotation at 5 MB
+	keepLines  = 10000           // keep last 10k lines after rotation
+)
+
 func initServiceLogging(configPath string) {
 	logFile := filepath.Join(filepath.Dir(configPath), "certkit-agent.log")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -251,6 +257,39 @@ func initServiceLogging(configPath string) {
 		return
 	}
 	log.SetOutput(f)
+	go logTruncator(logFile, f)
+}
+
+func logTruncator(logFile string, current *os.File) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		info, err := current.Stat()
+		if err != nil || info.Size() < maxLogSize {
+			continue
+		}
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			continue
+		}
+		lines := bytes.Split(data, []byte("\n"))
+		if len(lines) <= keepLines {
+			continue
+		}
+		kept := bytes.Join(lines[len(lines)-keepLines:], []byte("\n"))
+
+		if err := os.WriteFile(logFile, kept, 0o644); err != nil {
+			continue
+		}
+		newFile, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			continue
+		}
+		log.SetOutput(newFile)
+		old := current
+		current = newFile
+		old.Close()
+	}
 }
 
 func configureRecovery(s *mgr.Service) error {
