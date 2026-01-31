@@ -211,7 +211,7 @@ func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err e
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", cfg.UpdateCmd)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", cfg.UpdateCmd)
 	} else {
 		cmd = exec.Command("sh", "-c", cfg.UpdateCmd)
 	}
