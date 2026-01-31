@@ -4,8 +4,7 @@ Param(
     [string]$ServiceName = $env:CERTKIT_SERVICE_NAME,
     [string]$ConfigPath = $env:CERTKIT_CONFIG_PATH,
     [string]$AgentBinary = $env:CERTKIT_AGENT_BINARY,
-    [string]$BaseImage = $env:CERTKIT_WINDOWS_BASE_IMAGE,
-    [string]$ApacheZipUrl = $env:CERTKIT_APACHE_ZIP_URL
+    [string]$BaseImage = $env:CERTKIT_WINDOWS_BASE_IMAGE
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +26,6 @@ $env:CERTKIT_AGENT_SOURCE = "local"
 if ($ServiceName) { $env:CERTKIT_SERVICE_NAME = $ServiceName }
 if ($ConfigPath) { $env:CERTKIT_CONFIG_PATH = $ConfigPath }
 if ($AgentBinary) { $env:CERTKIT_AGENT_BINARY = $AgentBinary }
-if ($ApacheZipUrl) { $env:CERTKIT_APACHE_ZIP_URL = $ApacheZipUrl }
 $defaultBase = "mcr.microsoft.com/windows/servercore:ltsc2019"
 if (-not $BaseImage) {
     $BaseImage = $defaultBase

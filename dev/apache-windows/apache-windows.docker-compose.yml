@@ -7,7 +7,6 @@ services:
       dockerfile: dev/apache-windows/Dockerfile
       args:
         BASE_IMAGE: ${CERTKIT_WINDOWS_BASE_IMAGE:-mcr.microsoft.com/windows/servercore:ltsc2019}
-        APACHE_ZIP_URL: ${CERTKIT_APACHE_ZIP_URL:-https://www.apachelounge.com/download/VC17/binaries/httpd-2.4.58-win64-VS17.zip}
     image: certkit-agent-apache-windows:dev
     environment:
       CERTKIT_API_BASE: ${CERTKIT_API_BASE}

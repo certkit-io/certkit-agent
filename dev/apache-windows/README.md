@@ -27,9 +27,6 @@ $env:CERTKIT_API_BASE="YOUR_API_BASE"
 $env:REGISTRATION_KEY="YOUR_REGISTRATION_KEY"
 $env:CERTKIT_AGENT_SOURCE="release"
 $env:CERTKIT_WINDOWS_BASE_IMAGE="mcr.microsoft.com/windows/servercore:ltsc2019"
-# Optional: override Apache Lounge ZIP URL
-# $env:CERTKIT_APACHE_ZIP_URL="https://www.apachelounge.com/download/VC17/binaries/httpd-2.4.58-win64-VS17.zip"
-
 docker compose -f dev\apache-windows\apache-windows.docker-compose.yml up --build
 ```
 
@@ -49,7 +46,8 @@ From `dev\apache-windows`:
 ```
 
 ## Notes
-- Apache is installed from Apache Lounge ZIP in the Dockerfile. Override `CERTKIT_APACHE_ZIP_URL` if you need a different build/version.
+- Place the Apache Lounge ZIP at `dev\apache-windows\vendor\apache.zip` before building (the Dockerfile uses `COPY` for caching).
+- Place the VC++ redistributable at `dev\apache-windows\vendor\vcredist.x64.exe` before building.
 - OpenSSL is installed via Chocolatey to generate a self-signed dev certificate.
 - The default config path in this stack is `C:\dev\apache-windows\config.json`, which is bind-mounted to `dev\apache-windows\config.json` on the host.
 - The HTTPS endpoint is exposed on host port `9444`.

@@ -133,7 +133,7 @@ Test-Path $HttpdExe | Out-Null
 & $HttpdExe -k install -n "Apache24"
 
 # Make it auto-start (optional; in containers you often start it manually)
-sc.exe config "Apache24" start= auto
+#sc.exe config "Apache24" start= auto
 
 Start-Service -Name "Apache24"
 

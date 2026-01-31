@@ -4,25 +4,13 @@ FROM ${BASE_IMAGE}
 
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
 
-ARG APACHE_ZIP_URL=https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.66-260107-Win64-VS18.zip
-ENV APACHE_ZIP_URL=${APACHE_ZIP_URL}
+RUN New-Item -ItemType Directory -Force -Path C:\installers | Out-Null
 
-# RUN [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; `
-#     iex ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')); `
-#     choco install -y --no-progress vcredist140; `
-#     choco install -y --no-progress openssl.light
-
-ADD https://aka.ms/vs/18/release/VC_redist.x64.exe C:/installers/vcredist.exe
+COPY dev/apache-windows/vendor/vcredist.x64.exe C:\installers\vcredist.exe
 RUN C:\installers\vcredist.exe /quiet /install
 
-ADD https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.66-260107-Win64-VS18.zip c:\installers\apache.zip
-RUN Expand-Archive -Path c:\installers\apache.zip -DestinationPath C:\; 
-
-
-# ADD https://slproweb.com/download/Win64OpenSSL_Light-3_6_1.exe c:\installers\openssl.exe
-# RUN c:\installers\openssl.exe /quiet /install
-
-
+COPY dev/apache-windows/vendor/apache.zip C:\installers\apache.zip
+RUN Expand-Archive -Path C:\installers\apache.zip -DestinationPath C:\; 
 
 WORKDIR C:\app
 
