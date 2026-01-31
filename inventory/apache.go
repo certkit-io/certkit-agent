@@ -101,11 +101,11 @@ func parseApacheConfig(path string) ([]string, []string, []string, error) {
 			continue
 		}
 		if match := reCert.FindStringSubmatch(trimmed); len(match) == 2 {
-			certs = append(certs, cleanConfigValue(match[1]))
+			certs = append(certs, normalizeApachePath(cleanConfigValue(match[1])))
 			continue
 		}
 		if match := reKey.FindStringSubmatch(trimmed); len(match) == 2 {
-			keys = append(keys, cleanConfigValue(match[1]))
+			keys = append(keys, normalizeApachePath(cleanConfigValue(match[1])))
 			continue
 		}
 		if match := reServerName.FindStringSubmatch(trimmed); len(match) == 2 {
@@ -126,6 +126,15 @@ func parseApacheConfig(path string) ([]string, []string, []string, error) {
 	}
 
 	return certs, keys, domains, nil
+}
+
+func normalizeApachePath(value string) string {
+	if runtime.GOOS != "windows" {
+		return value
+	}
+	value = strings.ReplaceAll(value, "/", `\`)
+	value = strings.ReplaceAll(value, `\\`, `\`)
+	return value
 }
 
 func stripApacheComment(line string) string {
