@@ -22,6 +22,15 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 
 *Note:* If you do not have systemd, the agent install will still configure the agent, but you must manually configure the agent to autostart.
 
+### Windows (PowerShell)
+
+Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
+
+```powershell
+$env:REGISTRATION_KEY="your.registration_key_here"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.ps1 | iex"
+```
+
 ## Usage
 
 The agent has two commands: `install` and `run`.
