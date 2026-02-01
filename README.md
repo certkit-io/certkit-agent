@@ -151,6 +151,41 @@ Key points:
 - Use an update command to reload the main container (e.g., `docker exec certkit-nginx nginx -s reload`), or use a watch/`pid`-namespace approach.
 - The socket-exec approach requires access to the Docker socket.
 
+### Sidecar Modes
+
+**1) Socket exec (default)**
+- Setup: mount `/var/run/docker.sock` into the agent container.
+- CertKit update command: `docker exec <nginx_container> nginx -s reload`.
+- Best for: dev or trusted environments.
+
+```yaml
+# agent container
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+**2) Watch + reload**
+- Setup: nginx container watches `/certs` and reloads itself on changes.
+- CertKit update command: *(leave empty / no-op)*.
+- Best for: avoiding Docker socket while keeping automatic reloads.
+  See `dev/docker-sidecar/nginx-start.sh` for a minimal watcher example.
+
+```yaml
+# nginx container
+environment:
+  WATCH_CERTS: "1"
+```
+
+**3) PID namespace**
+- Setup: run agent container with `pid: "service:nginx"` to share PID namespace.
+- CertKit update command: `kill -HUP 1`.
+- Best for: socket-less reload with minimal extra tooling.
+
+```yaml
+# agent container
+pid: "service:nginx"
+```
+
 ## Logs
 
 - **Linux (systemd):** `journalctl -u certkit-agent -f`
