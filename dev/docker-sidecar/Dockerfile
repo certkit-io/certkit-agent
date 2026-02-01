@@ -1,4 +1,4 @@
-FROM docker:24.0-cli
+FROM docker:25.0-cli
 
 RUN apk add --no-cache bash curl ca-certificates coreutils
 
