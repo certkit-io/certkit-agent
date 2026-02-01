@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/auth"
 	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type ConfigurationPollRequest struct {
@@ -91,6 +91,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
+		utils.MarkAgentAuthorized()
 		return nil, nil
 	}
 
@@ -100,11 +101,13 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
-		log.Printf("Agent is not currently authorized.  Waiting for authorization from the CertKit server.")
+		utils.MarkAgentUnauthorized()
 		return nil, nil
 	} else if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("poll failed: status=%d body=%s", resp.StatusCode, body)
 	}
+
+	utils.MarkAgentAuthorized()
 
 	var pollResp ConfigurationPollResponse
 	if err := json.Unmarshal(body, &pollResp); err != nil {
