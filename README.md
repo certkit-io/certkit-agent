@@ -107,7 +107,7 @@ The agent stores its configuration in JSON format (default: `/etc/certkit-agent/
 
 - Linux
 - Windows
-- Docker Sidecar (Coming Soon!)
+- Docker Sidecar
 
 ## Autodetection Support
 The agent attempts to autodetect common software. The agent can manage certificates for any software, but manual configuration is needed when the software is not auto-detected.
@@ -139,6 +139,17 @@ The agent is intended to run continually as a service in the background (using t
 5. **Inventory reporting**
 
    The agent periodically reports its host inventory back to CertKit so you have visibility into what is deployed where.
+
+## Docker Sidecar
+
+The agent can run as a sidecar container and write certificates into a shared volume
+that your web server container consumes. A ready-to-run example is in `dev/docker-sidecar`.
+
+Key points:
+- Mount a shared volume for certs (e.g., `/certs`).
+- Configure CertKit to write PEM/key into that volume.
+- Use an update command to reload the main container (e.g., `docker exec certkit-nginx nginx -s reload`), or use a watch/`pid`-namespace approach.
+- The socket-exec approach requires access to the Docker socket.
 
 ## Logs
 
