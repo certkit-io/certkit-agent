@@ -4,6 +4,8 @@
 
 The Certkit Agent runs directly on your hosts and manages the full certificate lifecycle from registration through renewal and deployment. Once installed, the agent securely connects to CertKit, installs the certificates your hosts are authorized for, and keeps everything continuously up to date.
 
+See `HOW-IT-WORKS.md` for a deeper dive into architecture and security.
+
 ## Prerequisites
 
 - A **[CertKit](https://app.certkit.io) account**. You can sign-up for a free trial [here](https://app.certkit.io/signup).
