@@ -1,0 +1,29 @@
+services:
+  certkit-agent:
+    build:
+      context: ../..
+      dockerfile: dev/docker-sidecar/Dockerfile
+    image: certkit-agent-sidecar:dev
+    pid: "service:nginx"
+    environment:
+      CERTKIT_API_BASE: ${CERTKIT_API_BASE}
+      REGISTRATION_KEY: ${REGISTRATION_KEY}
+      CERTKIT_AGENT_SOURCE: ${CERTKIT_AGENT_SOURCE:-release}
+      CERTKIT_VERSION: ${CERTKIT_VERSION}
+      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
+    volumes:
+      - ./config:/etc/certkit-agent
+      - ./certs:/certs
+    depends_on:
+      - nginx
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: dev/docker-sidecar/nginx.Dockerfile
+    image: certkit-nginx-sidecar:dev
+    container_name: certkit-nginx
+    volumes:
+      - ./certs:/certs
+    ports:
+      - "9445:443"

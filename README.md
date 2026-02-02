@@ -4,6 +4,8 @@
 
 The Certkit Agent runs directly on your hosts and manages the full certificate lifecycle from registration through renewal and deployment. Once installed, the agent securely connects to CertKit, installs the certificates your hosts are authorized for, and keeps everything continuously up to date.
 
+See `HOW-IT-WORKS.md` for a deeper dive into architecture and security.
+
 ## Prerequisites
 
 - A **[CertKit](https://app.certkit.io) account**. You can sign-up for a free trial [here](https://app.certkit.io/signup).
@@ -11,7 +13,7 @@ The Certkit Agent runs directly on your hosts and manages the full certificate l
 
 ## Install
 
-The fastest way to install the agent is with the one-line installer script. This downloads the latest release, verifies its checksum, installs the binary, and sets up the systemd service:
+The fastest way to install the agent is with the one-line installer script. This downloads the latest release, verifies its checksum, installs the binary, and sets up the systemd service. For more detailed examples, see `INSTALLATION.md`.
 
 ```bash
 sudo env REGISTRATION_KEY="your.registration_key_here" \
@@ -25,11 +27,36 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 ### Windows (PowerShell)
 
 Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
+See `INSTALLATION.md` for more Windows details.
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
+
+### Docker Image
+
+The agent is published as a container image in GHCR. Example:
+
+```bash
+docker run --rm \
+  -e REGISTRATION_KEY="your.registration_key_here" \
+  -v ./certkit-agent:/etc/certkit-agent \
+  ghcr.io/certkit-io/certkit-agent:latest
+```
+
+```yaml
+# docker-compose.yml
+services:
+  certkit-agent:
+    image: ghcr.io/certkit-io/certkit-agent:latest
+    environment:
+      REGISTRATION_KEY: your.registration_key_here
+    volumes:
+      - ./certkit-agent:/etc/certkit-agent
+```
+
+The Docker image is typically used as a **sidecar** that writes certificates to a shared volume. See the Docker Sidecar section in `INSTALLATION.md` for full examples.
 
 ## Usage
 
@@ -107,7 +134,7 @@ The agent stores its configuration in JSON format (default: `/etc/certkit-agent/
 
 - Linux
 - Windows
-- Docker Sidecar (Coming Soon!)
+- Docker Sidecar
 
 ## Autodetection Support
 The agent attempts to autodetect common software. The agent can manage certificates for any software, but manual configuration is needed when the software is not auto-detected.
@@ -139,6 +166,53 @@ The agent is intended to run continually as a service in the background (using t
 5. **Inventory reporting**
 
    The agent periodically reports its host inventory back to CertKit so you have visibility into what is deployed where.
+
+## Docker Sidecar
+
+The agent can run as a sidecar container and write certificates into a shared volume
+that your web server container consumes. A ready-to-run example is in `dev/docker-sidecar`.
+For more detailed setup, see `INSTALLATION.md`.
+
+Key points:
+- Mount a shared volume for certs (e.g., `/certs`).
+- Configure CertKit to write PEM/key into that volume.
+- Use an update command to reload the main container (e.g., `docker exec certkit-nginx nginx -s reload`), or use a watch/`pid`-namespace approach.
+- The socket-exec approach requires access to the Docker socket.
+
+### Sidecar Modes
+
+**1) Socket exec (default)**
+- Setup: mount `/var/run/docker.sock` into the agent container.
+- CertKit update command: `docker exec <nginx_container> nginx -s reload`.
+- Best for: dev or trusted environments.
+
+```yaml
+# agent container
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+**2) Watch + reload**
+- Setup: nginx container watches `/certs` and reloads itself on changes.
+- CertKit update command: *(leave empty / no-op)*.
+- Best for: avoiding Docker socket while keeping automatic reloads.
+  See `dev/docker-sidecar/nginx-start.sh` for a minimal watcher example.
+
+```yaml
+# nginx container
+environment:
+  WATCH_CERTS: "1"
+```
+
+**3) PID namespace**
+- Setup: run agent container with `pid: "service:nginx"` to share PID namespace.
+- CertKit update command: `kill -HUP 1`.
+- Best for: socket-less reload with minimal extra tooling.
+
+```yaml
+# agent container
+pid: "service:nginx"
+```
 
 ## Logs
 

@@ -113,12 +113,16 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		if retryUpdateOnly || retryFull {
 			log.Print("Retrying update command due to previous failure...")
 		}
-		if commandOutput, err := runUpdateCommand(cfg); err != nil {
-			status.Status = statusErrorUpdateCmd
-			status.Message = fmt.Sprintf("Error running update command: %v", err)
-			return status
+		if strings.TrimSpace(cfg.UpdateCmd) == "" {
+			log.Print("No update command configured; skipping update command.")
 		} else {
-			status.Message = fmt.Sprintf("Update command output: \n%s", commandOutput)
+			if commandOutput, err := runUpdateCommand(cfg); err != nil {
+				status.Status = statusErrorUpdateCmd
+				status.Message = fmt.Sprintf("Error running update command: %v", err)
+				return status
+			} else {
+				status.Message = fmt.Sprintf("Update command output: \n%s", commandOutput)
+			}
 		}
 	}
 

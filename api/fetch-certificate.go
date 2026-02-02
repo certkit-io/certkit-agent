@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/auth"
 	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type FetchCertificateRequest struct {
@@ -78,11 +78,13 @@ func FetchCertificate(configurationId string, certificateId string) (*FetchCerti
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
-		log.Printf("Agent is not currently authorized.  Waiting for authorization from the CertKit server.")
+		utils.MarkAgentUnauthorized()
 		return nil, nil
 	} else if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch certificates failed: status=%d body=%s", resp.StatusCode, body)
 	}
+
+	utils.MarkAgentAuthorized()
 
 	var fetchResp FetchCertificateResponse
 	if err := json.Unmarshal(body, &fetchResp); err != nil {

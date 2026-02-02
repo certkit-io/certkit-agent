@@ -1,0 +1,7 @@
+services:
+  certkit-agent:
+    environment:
+      CERTKIT_AGENT_SOURCE: local
+      CERTKIT_AGENT_BINARY: /opt/certkit-agent/certkit-agent_linux_amd64
+    volumes:
+      - ../../dist/bin:/opt/certkit-agent
