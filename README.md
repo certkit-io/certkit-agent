@@ -34,6 +34,30 @@ $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.ps1 | iex"
 ```
 
+### Docker Image
+
+The agent is published as a container image in GHCR. Example:
+
+```bash
+docker run --rm \
+  -e REGISTRATION_KEY="your.registration_key_here" \
+  -v ./certkit-agent:/etc/certkit-agent \
+  ghcr.io/certkit-io/certkit-agent:latest
+```
+
+```yaml
+# docker-compose.yml
+services:
+  certkit-agent:
+    image: ghcr.io/certkit-io/certkit-agent:latest
+    environment:
+      REGISTRATION_KEY: your.registration_key_here
+    volumes:
+      - ./certkit-agent:/etc/certkit-agent
+```
+
+The Docker image is typically used as a **sidecar** that writes certificates to a shared volume. See the Docker Sidecar section in `INSTALLATION.md` for full examples.
+
 ## Usage
 
 The agent has two commands: `install` and `run`.
