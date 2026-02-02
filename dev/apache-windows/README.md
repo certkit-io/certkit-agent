@@ -26,7 +26,6 @@ From repo root:
 $env:CERTKIT_API_BASE="YOUR_API_BASE"
 $env:REGISTRATION_KEY="YOUR_REGISTRATION_KEY"
 $env:CERTKIT_AGENT_SOURCE="release"
-$env:CERTKIT_WINDOWS_BASE_IMAGE="mcr.microsoft.com/windows/servercore:ltsc2019"
 docker compose -f dev\apache-windows\apache-windows.docker-compose.yml up --build
 ```
 

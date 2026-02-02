@@ -21,7 +21,6 @@ $env:CERTKIT_API_BASE="YOUR_API_BASE"
 $env:REGISTRATION_KEY="YOUR_REGISTRATION_KEY"
 $env:CERTKIT_VERSION="v1.2.3"  # optional; defaults to latest
 $env:CERTKIT_AGENT_SOURCE="release"
-$env:CERTKIT_WINDOWS_BASE_IMAGE="mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019"
 
 docker compose -f dev\iis\iis.docker-compose.yml up --build
 ```
@@ -35,8 +34,6 @@ Build a Windows binary and mount it into the container:
 
 $env:CERTKIT_API_BASE="YOUR_API_BASE"
 $env:REGISTRATION_KEY="YOUR_REGISTRATION_KEY"
-# Optional: override base image to match your host build
-# $env:CERTKIT_WINDOWS_BASE_IMAGE="mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2022"
 # Optional: override default mount location
 # $env:CERTKIT_AGENT_BINARY="C:\\opt\\certkit-agent\\certkit-agent_windows_amd64.exe"
 
@@ -54,12 +51,11 @@ From `dev\iis`:
 
 If you see a Windows image/host version mismatch, `build-and-run-local.ps1` and `run-release.ps1` set `COMPOSE_COMPATIBILITY=1` so Docker honors `isolation: hyperv`.
 
-`build-and-run-local.ps1` and `run-release.ps1` default `CERTKIT_WINDOWS_BASE_IMAGE` to `mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019`.
+The IIS stack uses a fixed base image in the Dockerfile.
 
 ## Notes
 - The container installs the service as **LocalSystem** for LocalMachine cert store access.
 - The default config path in this stack is `C:\dev\iis\config.json`, which is bind-mounted to `dev\iis\config.json` on the host.
 - This is a dev-only setup; Windows service behavior inside containers is not a 1:1 match with a full VM/host.
 - If you need a fuller Windows environment, use a Windows VM and run the agent installer there.
-- You can override the base image by setting `CERTKIT_WINDOWS_BASE_IMAGE` in your environment.
 

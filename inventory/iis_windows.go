@@ -58,6 +58,12 @@ type iisBindingResult struct {
 
 func loadIISBindingsFromPowerShell() ([]iisBinding, bool) {
 	script := `
+
+if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
+	,@() | ConvertTo-Json
+	return
+}
+
 Import-Module WebAdministration
 
 ,@(

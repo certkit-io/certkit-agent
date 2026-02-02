@@ -3,8 +3,7 @@ Param(
     [string]$RegistrationKey = $env:REGISTRATION_KEY,
     [string]$ServiceName = $env:CERTKIT_SERVICE_NAME,
     [string]$ConfigPath = $env:CERTKIT_CONFIG_PATH,
-    [string]$AgentBinary = $env:CERTKIT_AGENT_BINARY,
-    [string]$BaseImage = $env:CERTKIT_WINDOWS_BASE_IMAGE
+    [string]$AgentBinary = $env:CERTKIT_AGENT_BINARY
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,11 +25,6 @@ $env:CERTKIT_AGENT_SOURCE = "local"
 if ($ServiceName) { $env:CERTKIT_SERVICE_NAME = $ServiceName }
 if ($ConfigPath) { $env:CERTKIT_CONFIG_PATH = $ConfigPath }
 if ($AgentBinary) { $env:CERTKIT_AGENT_BINARY = $AgentBinary }
-$defaultBase = "mcr.microsoft.com/windows/servercore:ltsc2019"
-if (-not $BaseImage) {
-    $BaseImage = $defaultBase
-}
-$env:CERTKIT_WINDOWS_BASE_IMAGE = $BaseImage
 
 $composeBase = Join-Path $scriptDir "apache-windows.docker-compose.yml"
 $composeLocal = Join-Path $scriptDir "apache-windows.local.docker-compose.yml"
@@ -38,7 +32,6 @@ $composeLocal = Join-Path $scriptDir "apache-windows.local.docker-compose.yml"
 Write-Host "Starting Windows Apache dev stack via docker compose"
 Write-Host "  CERTKIT_API_BASE=$env:CERTKIT_API_BASE"
 Write-Host "  CERTKIT_AGENT_SOURCE=$env:CERTKIT_AGENT_SOURCE"
-Write-Host "  CERTKIT_WINDOWS_BASE_IMAGE=$env:CERTKIT_WINDOWS_BASE_IMAGE"
 
 $env:COMPOSE_COMPATIBILITY = "1"
 & docker compose -f $composeBase -f $composeLocal up --build

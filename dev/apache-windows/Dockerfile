@@ -1,6 +1,5 @@
 # escape=`
-ARG BASE_IMAGE=mcr.microsoft.com/windows/servercore:ltsc2019
-FROM ${BASE_IMAGE}
+FROM mcr.microsoft.com/windows/servercore:ltsc2019
 
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
 
