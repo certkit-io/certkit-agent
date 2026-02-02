@@ -49,6 +49,9 @@ Common setup:
 - CertKit destinations: `/certs/<name>.crt` and `/certs/<name>.key`.
 - Reload mechanism depends on the mode (see below).
 
+Below are complete, minimal compose examples you can adapt to your existing stack.
+They assume a shared `certs` volume and an nginx container named `web`.
+
 #### Mode 1: Socket exec (default)
 
 **How it works:** the agent calls `docker exec` to reload the web server container.
@@ -57,17 +60,35 @@ Common setup:
 - Mount the Docker socket into the agent container.
 - Use an update command that runs `docker exec`.
 
+**Compose example:**
+
 ```yaml
 services:
-  certkit-agent:
+  web:
+    image: nginx:alpine
+    container_name: web
     volumes:
+      - ./certs:/certs
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8443:443"
+
+  certkit-agent:
+    image: certkit-agent-sidecar:dev
+    environment:
+      CERTKIT_API_BASE: https://app.certkit.io
+      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
+      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
+    volumes:
+      - ./config:/etc/certkit-agent
+      - ./certs:/certs
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
 **CertKit update command:**
 
 ```
-docker exec <nginx_container> nginx -s reload
+docker exec web nginx -s reload
 ```
 
 #### Mode 2: Watch + reload
@@ -78,22 +99,48 @@ docker exec <nginx_container> nginx -s reload
 - Enable a file watcher in the web server container.
 - No update command needed.
 
+**Compose example:**
+
 ```yaml
 services:
-  nginx:
+  web:
+    image: nginx:alpine
+    container_name: web
     environment:
       WATCH_CERTS: "1"
+    entrypoint: ["/bin/sh", "/usr/local/bin/nginx-start.sh"]
+    volumes:
+      - ./certs:/certs
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx-start.sh:/usr/local/bin/nginx-start.sh:ro
+    ports:
+      - "8443:443"
+
+  certkit-agent:
+    image: certkit-agent-sidecar:dev
+    environment:
+      CERTKIT_API_BASE: https://app.certkit.io
+      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
+      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
+    volumes:
+      - ./config:/etc/certkit-agent
+      - ./certs:/certs
 ```
 
-**Minimal watcher script (example):**
+**/nginx-start.sh:**
 
 ```bash
 #!/usr/bin/env sh
 set -euo pipefail
 
+# Start watcher in background
 while inotifywait -e close_write,create,delete,move /certs >/dev/null 2>&1; do
   nginx -s reload || true
-done
+done &
+
+# Run nginx in foreground
+exec nginx -g 'daemon off;'
+
 ```
 
 **CertKit update command:** *(leave empty / no-op)*
@@ -106,10 +153,29 @@ done
 - Share PID namespace with the web server container.
 - Use a simple signal command.
 
+**Compose example:**
+
 ```yaml
 services:
+  web:
+    image: nginx:alpine
+    container_name: web
+    volumes:
+      - ./certs:/certs
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8443:443"
+
   certkit-agent:
-    pid: "service:nginx"
+    image: certkit-agent-sidecar:dev
+    pid: "service:web"
+    environment:
+      CERTKIT_API_BASE: https://app.certkit.io
+      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
+      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
+    volumes:
+      - ./config:/etc/certkit-agent
+      - ./certs:/certs
 ```
 
 **CertKit update command:**
