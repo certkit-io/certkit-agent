@@ -1,0 +1,24 @@
+services:
+  iis-agent:
+    isolation: hyperv
+    hostname: "iis-box"
+    build:
+      context: ../..
+      dockerfile: dev/iis/Dockerfile
+      args:
+        BASE_IMAGE: ${CERTKIT_WINDOWS_BASE_IMAGE:-mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019}
+    image: certkit-agent-iis-windows:dev
+    environment:
+      CERTKIT_API_BASE: ${CERTKIT_API_BASE}
+      REGISTRATION_KEY: ${REGISTRATION_KEY}
+      CERTKIT_AGENT_SOURCE: ${CERTKIT_AGENT_SOURCE:-release}
+      CERTKIT_SERVICE_NAME: ${CERTKIT_SERVICE_NAME:-certkit-agent}
+      CERTKIT_CONFIG_PATH: ${CERTKIT_CONFIG_PATH:-C:\\dev\\iis\\config.json}
+      CERTKIT_AGENT_BINARY: ${CERTKIT_AGENT_BINARY:-C:\\opt\\certkit-agent\\certkit-agent.exe}
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - type: bind
+        source: .
+        target: C:\dev\iis

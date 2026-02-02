@@ -22,6 +22,15 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 
 *Note:* If you do not have systemd, the agent install will still configure the agent, but you must manually configure the agent to autostart.
 
+### Windows (PowerShell)
+
+Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
+
+```powershell
+$env:REGISTRATION_KEY="your.registration_key_here"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.ps1 | iex"
+```
+
 ## Usage
 
 The agent has two commands: `install` and `run`.
@@ -82,10 +91,22 @@ The agent stores its configuration in JSON format (default: `/etc/certkit-agent/
 
 *Configurations are unique*: A configuration is unique to an instance of the agent. Do not copy it wholesale when stamping out additional agents. To mass deploy the config file instead of running the install script, the config should have all sections removed besides the `bootstrap` section.
 
+### Minimal config example
+
+```json
+{
+  "api_base": "https://app.certkit.io",
+  "bootstrap": {
+    "registration_key": "YOUR_REGISTRATION_KEY"
+  },
+  "certificate_configurations": []
+}
+```
+
 ## Supported Platforms
 
 - Linux
-- Windows (Coming Soon!)
+- Windows
 - Docker Sidecar (Coming Soon!)
 
 ## Autodetection Support
@@ -118,6 +139,42 @@ The agent is intended to run continually as a service in the background (using t
 5. **Inventory reporting**
 
    The agent periodically reports its host inventory back to CertKit so you have visibility into what is deployed where.
+
+## Logs
+
+- **Linux (systemd):** `journalctl -u certkit-agent -f`
+- **Linux (manual run):** stdout/stderr of the process
+- **Windows (service):** `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
+
+## Uninstall / Cleanup
+
+### Linux
+
+```bash
+sudo systemctl stop certkit-agent
+sudo systemctl disable certkit-agent
+sudo rm -f /etc/systemd/system/certkit-agent.service
+sudo rm -rf /etc/certkit-agent
+```
+
+### Windows (PowerShell, elevated)
+
+```powershell
+sc.exe stop certkit-agent
+sc.exe delete certkit-agent
+Remove-Item -Recurse -Force C:\ProgramData\CertKit
+```
+
+## Troubleshooting
+
+- **Service installed but not running:** check logs (see above) and verify the config path exists.
+- **Cannot reach API:** verify network access and firewall rules.
+- **Windows service has no output:** check `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`.
+
+## Security Notes
+
+- The agent stores its config and keys locally; keep the config file and `C:\ProgramData\CertKit` restricted to administrators.
+- The agent runs as root (Linux) or LocalSystem (Windows) for certificate store access.
 
 ## Feedback and Support
 

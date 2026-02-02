@@ -49,6 +49,10 @@ func SynchronizeCertificates(configChanged bool) []api.AgentConfigStatusUpdate {
 }
 
 func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+	if strings.EqualFold(cfg.ConfigType, "iis") {
+		return synchronizeIISCertificate(cfg, configChanged)
+	}
+
 	log.Printf("Beginning synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
@@ -207,7 +211,7 @@ func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err e
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", cfg.UpdateCmd)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", cfg.UpdateCmd)
 	} else {
 		cmd = exec.Command("sh", "-c", cfg.UpdateCmd)
 	}

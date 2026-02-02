@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/config"
@@ -20,6 +21,7 @@ type RegisterAgentRequest struct {
 	Version         string `json:"version"`
 	RegistrationKey string `json:"registration_key"`
 	MachineId       string `json:"machine_id"`
+	OperatingSystem string `json:"operating_system"`
 }
 
 type RegisterAgentResponse struct {
@@ -36,6 +38,7 @@ func RegisterAgent() (*RegisterAgentResponse, error) {
 		Version:         config.CurrentConfig.Version.Version,
 		RegistrationKey: config.CurrentConfig.Bootstrap.RegistrationKey,
 		MachineId:       machineId,
+		OperatingSystem: runtime.GOOS,
 	}
 
 	// Marshal payload to JSON
