@@ -5,8 +5,6 @@ services:
     build:
       context: ../..
       dockerfile: dev/iis/Dockerfile
-      args:
-        BASE_IMAGE: ${CERTKIT_WINDOWS_BASE_IMAGE:-mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2019}
     image: certkit-agent-iis-windows:dev
     environment:
       CERTKIT_API_BASE: ${CERTKIT_API_BASE}
