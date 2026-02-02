@@ -239,7 +239,7 @@ sc.exe delete certkit-agent
 Remove-Item -Recurse -Force C:\ProgramData\CertKit
 ```
 
-## Troubleshooting
+## Troubleshooting 
 
 - **Service installed but not running:** check logs (see above) and verify the config path exists.
 - **Cannot reach API:** verify network access and firewall rules.
