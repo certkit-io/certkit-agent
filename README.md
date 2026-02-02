@@ -15,7 +15,7 @@ The fastest way to install the agent is with the one-line installer script. This
 
 ```bash
 sudo env REGISTRATION_KEY="your.registration_key_here" \
-bash -c 'curl -fsSL https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.sh | bash'
+bash -c 'curl -fsSL https://app.certkit.io/agent/latest/install.sh | bash'
 ```
 
 Get the full install snippet from your [CertKit Account](https://app.certkit.io).
@@ -28,7 +28,7 @@ Run from an elevated PowerShell prompt. This downloads the latest release, verif
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
 ## Usage
