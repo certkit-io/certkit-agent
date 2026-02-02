@@ -24,7 +24,7 @@ The Linux installer downloads the latest release, verifies the checksum, install
 
 ```bash
 sudo env REGISTRATION_KEY="your.registration_key_here" \
-bash -c 'curl -fsSL https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.sh | bash'
+bash -c 'curl -fsSL https://app.certkit.io/agent/latest/install.sh | bash'
 ```
 
 Service management:
@@ -192,7 +192,7 @@ Run from an elevated PowerShell prompt. The installer downloads the latest relea
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/certkit-io/certkit-agent/main/scripts/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
 ### Logs
