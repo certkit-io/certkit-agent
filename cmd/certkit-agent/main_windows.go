@@ -23,7 +23,9 @@ const defaultConfigPath = `C:\ProgramData\CertKit\certkit-agent\config.json`
 const defaultServiceDescription = "CertKit Agent service"
 
 func usageAndExit() {
-	fmt.Fprintf(os.Stderr, `Usage:
+	fmt.Fprintf(os.Stderr, `Certkit Agent %s
+
+Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
   certkit-agent run     [--service-name NAME] [--config PATH] [--service]
 
@@ -31,7 +33,7 @@ Examples (elevated PowerShell):
   .\certkit-agent.exe install
   Get-Service certkit-agent
   .\certkit-agent.exe run --config "%s"
-`, defaultConfigPath)
+`, version, defaultConfigPath)
 	os.Exit(2)
 }
 

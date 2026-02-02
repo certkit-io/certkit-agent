@@ -24,7 +24,9 @@ const (
 )
 
 func usageAndExit() {
-	fmt.Fprintf(os.Stderr, `Usage:
+	fmt.Fprintf(os.Stderr, `Certkit Agent %s
+
+Usage:
   certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
   certkit-agent run     [--config PATH]
 
@@ -32,7 +34,7 @@ Examples:
   sudo ./certkit-agent install
   sudo systemctl status certkit-agent
   ./certkit-agent run --config /etc/certkit-agent/config.json
-`)
+`, version)
 	os.Exit(2)
 }
 
