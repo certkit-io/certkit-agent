@@ -11,7 +11,7 @@ The Certkit Agent runs directly on your hosts and manages the full certificate l
 
 ## Install
 
-The fastest way to install the agent is with the one-line installer script. This downloads the latest release, verifies its checksum, installs the binary, and sets up the systemd service:
+The fastest way to install the agent is with the one-line installer script. This downloads the latest release, verifies its checksum, installs the binary, and sets up the systemd service. For more detailed examples, see `INSTALLATION.md`.
 
 ```bash
 sudo env REGISTRATION_KEY="your.registration_key_here" \
@@ -25,6 +25,7 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 ### Windows (PowerShell)
 
 Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
+See `INSTALLATION.md` for more Windows details.
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
@@ -144,6 +145,7 @@ The agent is intended to run continually as a service in the background (using t
 
 The agent can run as a sidecar container and write certificates into a shared volume
 that your web server container consumes. A ready-to-run example is in `dev/docker-sidecar`.
+For more detailed setup, see `INSTALLATION.md`.
 
 Key points:
 - Mount a shared volume for certs (e.g., `/certs`).
