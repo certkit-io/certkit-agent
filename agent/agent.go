@@ -30,7 +30,7 @@ func DoWork() {
 		}
 
 		// Send inventory updates every 8 hours.
-		if counter%960 == 0 || configChanged {
+		if (counter+1)%960 == 0 || configChanged {
 			SendInventory()
 		}
 		counter++
