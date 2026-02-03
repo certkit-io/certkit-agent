@@ -48,6 +48,7 @@ type CertificateConfiguration struct {
 	LastStatus                  string     `json:"last_status,omitempty"`
 	PemDestination              string     `json:"pem_destination,omitempty"`
 	KeyDestination              string     `json:"key_destination,omitempty"`
+	ChainDestination            string     `json:"chain_destination,omitempty"`
 	UpdateCmd                   string     `json:"update_cmd,omitempty"`
 	Name                        string     `json:"name,omitempty"`
 	AllInOne                    bool       `json:"all_in_one,omitempty"`

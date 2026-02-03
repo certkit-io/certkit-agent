@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/pem"
 	"fmt"
 	"log"
 	"os"
@@ -146,6 +147,15 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		if strings.TrimSpace(cfg.ChainDestination) != "" {
+			chainExists, err := utils.FileExists(cfg.ChainDestination)
+			if err != nil {
+				return false, err
+			}
+			if !chainExists {
+				return true, nil
+			}
+		}
 		if !certExists || !keyExists {
 			return true, nil
 		}
@@ -189,13 +199,36 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 		return nil
 	}
 
+	chainDestination := strings.TrimSpace(cfg.ChainDestination)
+	certPem := response.CertificatePem
+	chainPem := ""
+	if chainDestination != "" {
+		leafPem, parsedChainPem, err := splitLeafAndChain(response.CertificatePem)
+		if err != nil {
+			return fmt.Errorf("split certificate pem: %w", err)
+		}
+		certPem = leafPem
+		chainPem = parsedChainPem
+
+		if err := os.MkdirAll(filepath.Dir(chainDestination), 0o755); err != nil {
+			return err
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(cfg.KeyDestination), 0o755); err != nil {
 		return err
 	}
 
 	log.Printf("Writing PEM to %s", cfg.PemDestination)
-	if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(response.CertificatePem), 0o600); err != nil {
+	if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(certPem), 0o600); err != nil {
 		return err
+	}
+
+	if chainDestination != "" {
+		log.Printf("Writing chain PEM to %s", chainDestination)
+		if err := utils.WriteFileAtomic(chainDestination, []byte(chainPem), 0o600); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("Writing Private Key to %s", cfg.KeyDestination)
@@ -204,6 +237,37 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 	}
 
 	return nil
+}
+
+func splitLeafAndChain(certPem string) (string, string, error) {
+	data := []byte(certPem)
+	var leaf []byte
+	var chain []byte
+	foundLeaf := false
+
+	for len(data) > 0 {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		encoded := pem.EncodeToMemory(block)
+		if !foundLeaf {
+			leaf = append(leaf, encoded...)
+			foundLeaf = true
+			continue
+		}
+		chain = append(chain, encoded...)
+	}
+
+	if !foundLeaf {
+		return "", "", fmt.Errorf("no certificate block found in PEM")
+	}
+
+	return string(leaf), string(chain), nil
 }
 
 func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err error) {

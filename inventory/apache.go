@@ -24,7 +24,7 @@ func (ApacheProvider) Collect() ([]api.InventoryItem, error) {
 
 	items := make([]api.InventoryItem, 0)
 	for _, path := range configFiles {
-		certs, keys, domains, err := parseApacheConfig(path)
+		certs, keys, chains, domains, err := parseApacheConfig(path)
 		if err != nil {
 			log.Printf("Inventory parse error for %s: %v", path, err)
 			continue
@@ -35,11 +35,16 @@ func (ApacheProvider) Collect() ([]api.InventoryItem, error) {
 			pairs = len(keys)
 		}
 		for i := 0; i < pairs; i++ {
+			chainPath := ""
+			if i < len(chains) {
+				chainPath = chains[i]
+			}
 			items = append(items, api.InventoryItem{
 				Server:          "apache",
 				ConfigPath:      path,
 				CertificatePath: certs[i],
 				KeyPath:         keys[i],
+				ChainPath:       chainPath,
 				Domains:         joinDomains(domains),
 			})
 		}
@@ -79,19 +84,21 @@ func apacheConfigGlobs() []string {
 	}
 }
 
-func parseApacheConfig(path string) ([]string, []string, []string, error) {
+func parseApacheConfig(path string) ([]string, []string, []string, []string, error) {
 	data, err := utils.ReadFileBytes(path)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	reCert := regexp.MustCompile(`(?i)^\s*SSLCertificateFile\s+(.+)$`)
 	reKey := regexp.MustCompile(`(?i)^\s*SSLCertificateKeyFile\s+(.+)$`)
+	reChain := regexp.MustCompile(`(?i)^\s*SSLCertificateChainFile\s+(.+)$`)
 	reServerName := regexp.MustCompile(`(?i)^\s*ServerName\s+(.+)$`)
 	reServerAlias := regexp.MustCompile(`(?i)^\s*ServerAlias\s+(.+)$`)
 
 	var certs []string
 	var keys []string
+	var chains []string
 	var domains []string
 
 	lines := strings.Split(string(data), "\n")
@@ -106,6 +113,10 @@ func parseApacheConfig(path string) ([]string, []string, []string, error) {
 		}
 		if match := reKey.FindStringSubmatch(trimmed); len(match) == 2 {
 			keys = append(keys, normalizeApachePath(cleanConfigValue(match[1])))
+			continue
+		}
+		if match := reChain.FindStringSubmatch(trimmed); len(match) == 2 {
+			chains = append(chains, normalizeApachePath(cleanConfigValue(match[1])))
 			continue
 		}
 		if match := reServerName.FindStringSubmatch(trimmed); len(match) == 2 {
@@ -125,7 +136,7 @@ func parseApacheConfig(path string) ([]string, []string, []string, error) {
 		}
 	}
 
-	return certs, keys, domains, nil
+	return certs, keys, chains, domains, nil
 }
 
 func normalizeApachePath(value string) string {
