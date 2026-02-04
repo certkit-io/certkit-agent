@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"encoding/pem"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +110,14 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	}
 
 	if needsFetch || configChanged || retryUpdateOnly || retryFull {
+		if err := applyCertificatePermissions(cfg); err != nil {
+			status.Status = statusErrorWriteCert
+			status.Message = fmt.Sprintf("Error applying certificate permissions: %v", err)
+			return status
+		}
+	}
+
+	if needsFetch || configChanged || retryUpdateOnly || retryFull {
 		if !needsFetch && configChanged {
 			log.Print("Running update cmd due to configuration change...")
 		}
@@ -145,6 +156,15 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 		keyExists, err := utils.FileExists(cfg.KeyDestination)
 		if err != nil {
 			return false, err
+		}
+		if strings.TrimSpace(cfg.ChainDestination) != "" {
+			chainExists, err := utils.FileExists(cfg.ChainDestination)
+			if err != nil {
+				return false, err
+			}
+			if !chainExists {
+				return true, nil
+			}
 		}
 		if !certExists || !keyExists {
 			return true, nil
@@ -189,13 +209,36 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 		return nil
 	}
 
+	chainDestination := strings.TrimSpace(cfg.ChainDestination)
+	certPem := response.CertificatePem
+	chainPem := ""
+	if chainDestination != "" {
+		leafPem, parsedChainPem, err := splitLeafAndChain(response.CertificatePem)
+		if err != nil {
+			return fmt.Errorf("split certificate pem: %w", err)
+		}
+		certPem = leafPem
+		chainPem = parsedChainPem
+
+		if err := os.MkdirAll(filepath.Dir(chainDestination), 0o755); err != nil {
+			return err
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(cfg.KeyDestination), 0o755); err != nil {
 		return err
 	}
 
 	log.Printf("Writing PEM to %s", cfg.PemDestination)
-	if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(response.CertificatePem), 0o600); err != nil {
+	if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(certPem), 0o600); err != nil {
 		return err
+	}
+
+	if chainDestination != "" {
+		log.Printf("Writing chain PEM to %s", chainDestination)
+		if err := utils.WriteFileAtomic(chainDestination, []byte(chainPem), 0o600); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("Writing Private Key to %s", cfg.KeyDestination)
@@ -204,6 +247,156 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 	}
 
 	return nil
+}
+
+func splitLeafAndChain(certPem string) (string, string, error) {
+	data := []byte(certPem)
+	var leaf []byte
+	var chain []byte
+	foundLeaf := false
+
+	for len(data) > 0 {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		encoded := pem.EncodeToMemory(block)
+		if !foundLeaf {
+			leaf = append(leaf, encoded...)
+			foundLeaf = true
+			continue
+		}
+		chain = append(chain, encoded...)
+	}
+
+	if !foundLeaf {
+		return "", "", fmt.Errorf("no certificate block found in PEM")
+	}
+
+	return string(leaf), string(chain), nil
+}
+
+func applyCertificatePermissions(cfg config.CertificateConfiguration) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
+	ownerUser := strings.TrimSpace(cfg.OwnerUser)
+	ownerGroup := strings.TrimSpace(cfg.OwnerGroup)
+	permValue := strings.TrimSpace(cfg.FilePermissions)
+	if ownerUser == "" && ownerGroup == "" && permValue == "" {
+		return nil
+	}
+
+	paths := []string{cfg.PemDestination}
+	if !cfg.AllInOne {
+		paths = append(paths, cfg.KeyDestination)
+	}
+	chainDestination := strings.TrimSpace(cfg.ChainDestination)
+	if chainDestination != "" {
+		paths = append(paths, chainDestination)
+	}
+
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		exists, err := utils.FileExists(path)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if err := applyFileOwnershipAndPermissions(cfg, path); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func applyFileOwnershipAndPermissions(cfg config.CertificateConfiguration, path string) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
+	ownerUser := strings.TrimSpace(cfg.OwnerUser)
+	ownerGroup := strings.TrimSpace(cfg.OwnerGroup)
+	permValue := strings.TrimSpace(cfg.FilePermissions)
+
+	if ownerUser == "" && ownerGroup == "" && permValue == "" {
+		return nil
+	}
+
+	if ownerUser == "" {
+		ownerUser = "root"
+	}
+	if ownerGroup == "" {
+		ownerGroup = "root"
+	}
+	if permValue == "" {
+		permValue = "0o600"
+	}
+
+	mode, err := parseFileMode(permValue)
+	if err != nil {
+		return err
+	}
+
+	uid, err := resolveUserId(ownerUser)
+	if err != nil {
+		return err
+	}
+	gid, err := resolveGroupId(ownerGroup)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("chown %s: %w", path, err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func parseFileMode(value string) (os.FileMode, error) {
+	modeValue, err := strconv.ParseUint(value, 0, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse file permissions %q: %w", value, err)
+	}
+	return os.FileMode(modeValue), nil
+}
+
+func resolveUserId(name string) (int, error) {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return 0, fmt.Errorf("lookup user %q: %w", name, err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return 0, fmt.Errorf("parse uid for user %q: %w", name, err)
+	}
+	return uid, nil
+}
+
+func resolveGroupId(name string) (int, error) {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return 0, fmt.Errorf("lookup group %q: %w", name, err)
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return 0, fmt.Errorf("parse gid for group %q: %w", name, err)
+	}
+	return gid, nil
 }
 
 func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err error) {

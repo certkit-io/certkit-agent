@@ -18,6 +18,7 @@ type InventoryItem struct {
 	ConfigPath      string `json:"config_path"`
 	CertificatePath string `json:"certificate_path"`
 	KeyPath         string `json:"key_path"`
+	ChainPath       string `json:"chain_path,omitempty"`
 	Domains         string `json:"domains,omitempty"`
 }
 

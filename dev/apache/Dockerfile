@@ -15,6 +15,7 @@ RUN openssl req -x509 -nodes -newkey rsa:2048 \
   -keyout /etc/apache2/ssl/certkit.key \
   -out /etc/apache2/ssl/certkit.crt \
   -days 1
+RUN cp /etc/apache2/ssl/certkit.crt /etc/apache2/ssl/certkit.chain.crt
 
 COPY dev/apache/certkit.conf /etc/apache2/sites-available/certkit-ssl.conf
 COPY dev/apache/run-certkit-agent.sh /usr/local/bin/run-certkit-agent.sh
