@@ -19,8 +19,8 @@ func DoWork() {
 		if err != nil {
 			reportAgentError(err, "", "")
 		}
-		// Synchronize every 10 minutes
-		if counter%20 == 0 || configChanged {
+		// Synchronize every 60 minutes
+		if counter%120 == 0 || configChanged {
 			statuses := SynchronizeCertificates(configChanged)
 			if len(statuses) > 0 {
 				if err := api.UpdateConfigStatus(statuses); err != nil {
@@ -30,7 +30,7 @@ func DoWork() {
 		}
 
 		// Send inventory updates every 8 hours.
-		if (counter+1)%960 == 0 || configChanged {
+		if (counter+1)%960 == 0 {
 			SendInventory()
 		}
 		counter++
