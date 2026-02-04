@@ -6,8 +6,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -196,6 +198,9 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 		if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(merged), 0o600); err != nil {
 			return err
 		}
+		if err := applyFileOwnershipAndPermissions(cfg, cfg.PemDestination); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -223,16 +228,25 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 	if err := utils.WriteFileAtomic(cfg.PemDestination, []byte(certPem), 0o600); err != nil {
 		return err
 	}
+	if err := applyFileOwnershipAndPermissions(cfg, cfg.PemDestination); err != nil {
+		return err
+	}
 
 	if chainDestination != "" {
 		log.Printf("Writing chain PEM to %s", chainDestination)
 		if err := utils.WriteFileAtomic(chainDestination, []byte(chainPem), 0o600); err != nil {
 			return err
 		}
+		if err := applyFileOwnershipAndPermissions(cfg, chainDestination); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("Writing Private Key to %s", cfg.KeyDestination)
 	if err := utils.WriteFileAtomic(cfg.KeyDestination, []byte(response.KeyPem), 0o600); err != nil {
+		return err
+	}
+	if err := applyFileOwnershipAndPermissions(cfg, cfg.KeyDestination); err != nil {
 		return err
 	}
 
@@ -268,6 +282,85 @@ func splitLeafAndChain(certPem string) (string, string, error) {
 	}
 
 	return string(leaf), string(chain), nil
+}
+
+func applyFileOwnershipAndPermissions(cfg config.CertificateConfiguration, path string) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
+	ownerUser := strings.TrimSpace(cfg.OwnerUser)
+	ownerGroup := strings.TrimSpace(cfg.OwnerGroup)
+	permValue := strings.TrimSpace(cfg.FilePermissions)
+
+	if ownerUser == "" && ownerGroup == "" && permValue == "" {
+		return nil
+	}
+
+	if ownerUser == "" {
+		ownerUser = "root"
+	}
+	if ownerGroup == "" {
+		ownerGroup = "root"
+	}
+	if permValue == "" {
+		permValue = "0o600"
+	}
+
+	mode, err := parseFileMode(permValue)
+	if err != nil {
+		return err
+	}
+
+	uid, err := resolveUserId(ownerUser)
+	if err != nil {
+		return err
+	}
+	gid, err := resolveGroupId(ownerGroup)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Chown(path, uid, gid); err != nil {
+		return fmt.Errorf("chown %s: %w", path, err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func parseFileMode(value string) (os.FileMode, error) {
+	modeValue, err := strconv.ParseUint(value, 0, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parse file permissions %q: %w", value, err)
+	}
+	return os.FileMode(modeValue), nil
+}
+
+func resolveUserId(name string) (int, error) {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return 0, fmt.Errorf("lookup user %q: %w", name, err)
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return 0, fmt.Errorf("parse uid for user %q: %w", name, err)
+	}
+	return uid, nil
+}
+
+func resolveGroupId(name string) (int, error) {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return 0, fmt.Errorf("lookup group %q: %w", name, err)
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		return 0, fmt.Errorf("parse gid for group %q: %w", name, err)
+	}
+	return gid, nil
 }
 
 func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err error) {

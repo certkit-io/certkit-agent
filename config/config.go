@@ -49,6 +49,9 @@ type CertificateConfiguration struct {
 	PemDestination              string     `json:"pem_destination,omitempty"`
 	KeyDestination              string     `json:"key_destination,omitempty"`
 	ChainDestination            string     `json:"chain_destination,omitempty"`
+	OwnerUser                   string     `json:"owner_user,omitempty"`
+	OwnerGroup                  string     `json:"owner_group,omitempty"`
+	FilePermissions             string     `json:"file_permissions,omitempty"`
 	UpdateCmd                   string     `json:"update_cmd,omitempty"`
 	Name                        string     `json:"name,omitempty"`
 	AllInOne                    bool       `json:"all_in_one,omitempty"`
