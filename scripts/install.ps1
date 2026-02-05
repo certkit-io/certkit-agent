@@ -38,30 +38,6 @@ function Get-LatestReleaseTag {
     return $latest.tag_name
 }
 
-function Wait-ServiceState {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Name,
-        [Parameter(Mandatory = $true)]
-        [System.ServiceProcess.ServiceControllerStatus]$State,
-        [int]$TimeoutSeconds = 30
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
-        if (-not $svc) {
-            return $false
-        }
-        if ($svc.Status -eq $State) {
-            return $true
-        }
-        Start-Sleep -Milliseconds 500
-    }
-
-    return $false
-}
-
 Assert-Admin
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -108,11 +84,14 @@ try {
 
     $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     $hadExistingService = $null -ne $existingService
-    if ($hadExistingService -and $existingService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+    if ($hadExistingService) {
         Write-Host "Stopping existing service '$ServiceName' before upgrade"
-        Stop-Service -Name $ServiceName -Force -ErrorAction Stop
-        if (-not (Wait-ServiceState -Name $ServiceName -State ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds 60)) {
-            throw "Service '$ServiceName' did not stop within timeout."
+        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+
+        $stoppedService = Get-Service -Name $ServiceName -ErrorAction Stop
+        if ($stoppedService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            throw "Service '$ServiceName' failed to stop."
         }
     }
 
@@ -129,9 +108,13 @@ try {
     Write-Host "Installing Windows service"
     & $installBin install --service-name $ServiceName --config $ConfigPath
 
-    if (-not (Wait-ServiceState -Name $ServiceName -State ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds 30)) {
-        Write-Host "Service '$ServiceName' was not running after install; starting it now"
-        Start-Service -Name $ServiceName -ErrorAction Stop
+    Write-Host "Starting service '$ServiceName'"
+    Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    $runningService = Get-Service -Name $ServiceName -ErrorAction Stop
+    if ($runningService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        throw "Service '$ServiceName' failed to start."
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
