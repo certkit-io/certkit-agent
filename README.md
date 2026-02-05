@@ -27,7 +27,7 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 ### Windows (PowerShell)
 
 Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
-See `INSTALLATION.md` for more Windows details.
+See [INSTALLATION.md](INSTALLATION.md) for more Windows details.
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
