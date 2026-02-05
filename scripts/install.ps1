@@ -38,6 +38,30 @@ function Get-LatestReleaseTag {
     return $latest.tag_name
 }
 
+function Wait-ServiceState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [System.ServiceProcess.ServiceControllerStatus]$State,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+        if (-not $svc) {
+            return $false
+        }
+        if ($svc.Status -eq $State) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    return $false
+}
+
 Assert-Admin
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -82,6 +106,16 @@ try {
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     $installBin = Join-Path $binDir "certkit-agent.exe"
 
+    $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    $hadExistingService = $null -ne $existingService
+    if ($hadExistingService -and $existingService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+        Write-Host "Stopping existing service '$ServiceName' before upgrade"
+        Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+        if (-not (Wait-ServiceState -Name $ServiceName -State ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds 60)) {
+            throw "Service '$ServiceName' did not stop within timeout."
+        }
+    }
+
     Write-Host "Installing binary to $installBin"
     Copy-Item -Force -Path $binPath -Destination $installBin
 
@@ -94,6 +128,11 @@ try {
 
     Write-Host "Installing Windows service"
     & $installBin install --service-name $ServiceName --config $ConfigPath
+
+    if (-not (Wait-ServiceState -Name $ServiceName -State ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds 30)) {
+        Write-Host "Service '$ServiceName' was not running after install; starting it now"
+        Start-Service -Name $ServiceName -ErrorAction Stop
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
         $appId = ($env:REGISTRATION_KEY -split "\.")[0]
