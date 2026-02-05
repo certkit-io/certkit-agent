@@ -185,6 +185,8 @@ Key points:
 - Setup: mount `/var/run/docker.sock` into the agent container.
 - CertKit update command: `docker exec <nginx_container> nginx -s reload`.
 - Best for: dev or trusted environments.
+  Security: grants root-level control of the Docker host via the socket.
+  Ops: simplest and most reliable, no custom web container scripts.
 
 ```yaml
 # agent container
@@ -197,6 +199,8 @@ volumes:
 - CertKit update command: *(leave empty / no-op)*.
 - Best for: avoiding Docker socket while keeping automatic reloads.
   See `dev/docker-sidecar/nginx-start.sh` for a minimal watcher example.
+  Security: safest option (no Docker socket).
+  Ops: requires a watcher and a custom entrypoint; watcher failures stop reloads.
 
 ```yaml
 # nginx container
@@ -208,6 +212,8 @@ environment:
 - Setup: run agent container with `pid: "service:nginx"` to share PID namespace.
 - CertKit update command: `kill -HUP 1`.
 - Best for: socket-less reload with minimal extra tooling.
+  Security: more isolated than Docker socket, less isolated than separate PID namespaces.
+  Ops: no watcher, but relies on PID 1 handling `HUP` correctly.
 
 ```yaml
 # agent container
