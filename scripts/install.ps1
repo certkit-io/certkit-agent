@@ -95,7 +95,14 @@ try {
     Write-Host "Installing Windows service"
     & $installBin install --service-name $ServiceName --config $ConfigPath
 
-    Write-Host "Done. Service '$ServiceName' should be running."
+    if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
+        $appId = ($env:REGISTRATION_KEY -split "\.")[0]
+        Write-Host "Done. Service '$ServiceName' should be running."
+        Write-Host "Authorize and configure this agent: https://app.certkit.io/app/$appId/agents/"
+    } else {
+        Write-Host "Done. Service '$ServiceName' should be running."
+        Write-Host "Finish configuring this agent in the CertKit UI: https://app.certkit.io"
+    }
 } finally {
     if (Test-Path $tmp) {
         Remove-Item -Recurse -Force $tmp

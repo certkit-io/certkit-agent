@@ -64,7 +64,8 @@ echo "Verifying checksum"
 echo "Installing binary to ${INSTALL_DIR}/${BIN_NAME}"
 install -m 0755 "$tmp/${ASSET_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
 
-echo "Running certkit-agent install"
+echo "Running certkit-agent install..."
+echo "Installation output:"
 /usr/local/bin/${BIN_NAME} install
 
 if [[ $FIRST_INSTALL -eq 0 ]]; then
@@ -76,4 +77,10 @@ if [[ $FIRST_INSTALL -eq 0 ]]; then
   fi
 fi
 
-echo "✅ CertKit Agent installed/updated and running"
+echo "Installation complete."
+if [[ -n "${REGISTRATION_KEY:-}" ]]; then
+  app_id="${REGISTRATION_KEY%%.*}"
+  echo "Finish configuring this agent: https://app.certkit.io/app/${app_id}/agents/"
+else
+  echo "Finish configuring this agent in the CertKit UI: https://app.certkit.io"
+fi
