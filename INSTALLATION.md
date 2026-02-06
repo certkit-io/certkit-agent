@@ -5,12 +5,14 @@ This document expands on the install notes in the README and focuses on practica
 ## Table of Contents
 - [Linux](#linux)
   - [Systemd Service (Recommended)](#systemd-service-recommended)
+  - [Linux Uninstall](#linux-uninstall)
   - [Docker Sidecar](#docker-sidecar)
     - [Mode 1: Socket exec (default)](#mode-1-socket-exec-default)
     - [Mode 2: Watch + reload](#mode-2-watch--reload)
     - [Mode 3: PID namespace](#mode-3-pid-namespace)
 - [Windows](#windows)
   - [Windows Service Install](#windows-service-install)
+  - [Windows Uninstall](#windows-uninstall)
   - [Logs](#logs)
   - [IIS vs PEM/Key Workflows](#iis-vs-pemkey-workflows)
   - [Apache on Windows](#apache-on-windows)
@@ -38,6 +40,26 @@ If you don't use systemd, you can still run the agent directly:
 
 ```bash
 ./certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### Linux Uninstall
+
+Service-only uninstall (keep config):
+
+```bash
+sudo certkit-agent uninstall
+```
+
+Service + config uninstall:
+
+```bash
+sudo certkit-agent uninstall --purge-config
+```
+
+If you installed with custom values, pass the same options used at install time:
+
+```bash
+sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Docker Sidecar
@@ -213,6 +235,38 @@ Run from an elevated PowerShell prompt. The installer downloads the latest relea
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
+```
+
+The installer also writes an Add/Remove Programs entry ("CertKit Agent") that
+points to a local uninstall script at:
+
+```
+C:\Program Files\CertKit\bin\uninstall.ps1
+```
+
+### Windows Uninstall
+
+Preferred:
+- Open **Settings -> Apps -> Installed apps**.
+- Select **CertKit Agent** and click **Uninstall**.
+
+PowerShell using the same ARP uninstall mechanism:
+
+```powershell
+$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+```
+
+CLI fallback (elevated PowerShell):
+
+```powershell
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
+```
+
+With config removal:
+
+```powershell
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall --purge-config
 ```
 
 ### Logs

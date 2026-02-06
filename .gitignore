@@ -1,4 +1,5 @@
 /dist/
+/\.gocache/
 /dev/**/config.json
 /dev/**/.env
 /dev/**/certkit-agent.log

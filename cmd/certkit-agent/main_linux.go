@@ -28,10 +28,12 @@ func usageAndExit() {
 
 Usage:
   certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
+  certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH] [--purge-config]
   certkit-agent run     [--config PATH]
 
 Examples:
   sudo ./certkit-agent install
+  sudo ./certkit-agent uninstall
   sudo systemctl status certkit-agent
   ./certkit-agent run --config /etc/certkit-agent/config.json
 `, version)
@@ -129,6 +131,77 @@ func runCmd(args []string) {
 	}()
 
 	runAgent(*configPath, stopCh)
+}
+
+func uninstallCmd(args []string) {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	serviceName := fs.String("service-name", defaultServiceName, "systemd service name")
+	unitDir := fs.String("unit-dir", defaultUnitPath, "systemd unit directory")
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	purgeConfig := fs.Bool("purge-config", false, "remove config file")
+	fs.Parse(args)
+
+	mustBeRoot()
+
+	if !strings.HasPrefix(*unitDir, "/") {
+		log.Fatalf("--unit-dir must be an absolute path: %s", *unitDir)
+	}
+	if !strings.HasPrefix(*configPath, "/") {
+		log.Fatalf("--config must be an absolute path: %s", *configPath)
+	}
+
+	unitName := *serviceName + ".service"
+	unitPath := filepath.Join(*unitDir, unitName)
+	unitExists := false
+	if _, err := os.Stat(unitPath); err == nil {
+		unitExists = true
+	} else if !os.IsNotExist(err) {
+		log.Fatalf("failed to stat unit file %s: %v", unitPath, err)
+	}
+
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		if unitExists {
+			log.Printf("Removing systemd unit %s", unitPath)
+
+			if err := runCmdLogged("systemctl", "stop", unitName); err != nil {
+				log.Printf("systemctl stop failed for %s: %v", unitName, err)
+			}
+			if err := runCmdLogged("systemctl", "disable", unitName); err != nil {
+				log.Printf("systemctl disable failed for %s: %v", unitName, err)
+			}
+			if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+				log.Fatalf("failed to remove unit file %s: %v", unitPath, err)
+			}
+			if err := runCmdLogged("systemctl", "daemon-reload"); err != nil {
+				log.Fatalf("systemctl daemon-reload failed: %v", err)
+			}
+			if err := runCmdLogged("systemctl", "reset-failed", unitName); err != nil {
+				log.Printf("systemctl reset-failed failed for %s: %v", unitName, err)
+			}
+		} else {
+			log.Printf("No unit file found at %s; nothing to remove", unitPath)
+		}
+	} else {
+		if unitExists {
+			log.Printf("systemctl not found; removing unit file %s only", unitPath)
+			if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+				log.Fatalf("failed to remove unit file %s: %v", unitPath, err)
+			}
+		} else {
+			log.Printf("systemctl not found and no unit file at %s", unitPath)
+		}
+	}
+
+	if *purgeConfig {
+		if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
+			log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+		}
+	}
+
+	log.Printf("Uninstall completed for service %s", *serviceName)
+	if *purgeConfig {
+		log.Printf("Removed config file %s", *configPath)
+	}
 }
 
 // --- helpers ---

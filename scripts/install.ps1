@@ -38,6 +38,95 @@ function Get-LatestReleaseTag {
     return $latest.tag_name
 }
 
+function Write-LocalUninstallScript {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath
+    )
+
+    $script = @'
+Param(
+    [string]$ServiceName = "certkit-agent",
+    [string]$InstallDir = "C:\\Program Files\\CertKit",
+    [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json",
+    [switch]$PurgeConfig
+)
+
+$ErrorActionPreference = "Stop"
+
+function Assert-Admin {
+    $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($current)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "Please run this script from an elevated Administrator PowerShell."
+    }
+}
+
+Assert-Admin
+
+$binPath = Join-Path $InstallDir "bin\\certkit-agent.exe"
+if (Test-Path $binPath) {
+    if ($PurgeConfig) {
+        & $binPath uninstall --service-name $ServiceName --config $ConfigPath --purge-config
+    } else {
+        & $binPath uninstall --service-name $ServiceName --config $ConfigPath
+    }
+} else {
+    Write-Host "certkit-agent binary not found at $binPath. Nothing to run."
+}
+
+if (Test-Path $binPath) {
+    Remove-Item -Force $binPath
+}
+
+$regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CertKit Agent"
+if (Test-Path $regPath) {
+    Remove-Item -Path $regPath -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Write-Host "Uninstall complete."
+'@
+
+    Set-Content -Path $ScriptPath -Value $script -Encoding ASCII
+}
+
+function Register-WindowsUninstallEntry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ServiceName,
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir,
+        [Parameter(Mandatory = $true)]
+        [string]$ConfigPath,
+        [Parameter(Mandatory = $true)]
+        [string]$UninstallScriptPath,
+        [Parameter(Mandatory = $true)]
+        [string]$InstallBinPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    $regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CertKit Agent"
+    $displayVersion = $Version.TrimStart("v")
+    $escapedUninstallScriptPath = $UninstallScriptPath.Replace('"', '""')
+    $escapedServiceName = $ServiceName.Replace('"', '""')
+    $escapedInstallDir = $InstallDir.Replace('"', '""')
+    $escapedConfigPath = $ConfigPath.Replace('"', '""')
+    $uninstallString = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""$escapedUninstallScriptPath"" -ServiceName ""$escapedServiceName"" -InstallDir ""$escapedInstallDir"" -ConfigPath ""$escapedConfigPath"""
+
+    New-Item -Path $regPath -Force | Out-Null
+    Set-ItemProperty -Path $regPath -Name "DisplayName" -Value "CertKit Agent"
+    Set-ItemProperty -Path $regPath -Name "DisplayVersion" -Value $displayVersion
+    Set-ItemProperty -Path $regPath -Name "Publisher" -Value "CertKit"
+    Set-ItemProperty -Path $regPath -Name "InstallLocation" -Value $InstallDir
+    Set-ItemProperty -Path $regPath -Name "DisplayIcon" -Value $InstallBinPath
+    Set-ItemProperty -Path $regPath -Name "UninstallString" -Value $uninstallString
+    Set-ItemProperty -Path $regPath -Name "QuietUninstallString" -Value $uninstallString
+    Set-ItemProperty -Path $regPath -Name "NoModify" -Type DWord -Value 1
+    Set-ItemProperty -Path $regPath -Name "NoRepair" -Type DWord -Value 1
+    Set-ItemProperty -Path $regPath -Name "InstallDate" -Value (Get-Date).ToString("yyyyMMdd")
+}
+
 Assert-Admin
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -87,7 +176,7 @@ try {
     if ($hadExistingService) {
         Write-Host "Stopping existing service '$ServiceName' before upgrade"
         Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 3
 
         $stoppedService = Get-Service -Name $ServiceName -ErrorAction Stop
         if ($stoppedService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
@@ -108,9 +197,16 @@ try {
     Write-Host "Installing Windows service"
     & $installBin install --service-name $ServiceName --config $ConfigPath
 
+    $uninstallScript = Join-Path $binDir "uninstall.ps1"
+    Write-Host "Writing uninstall script to $uninstallScript"
+    Write-LocalUninstallScript -ScriptPath $uninstallScript
+
+    Write-Host "Registering Add/Remove Programs entry"
+    Register-WindowsUninstallEntry -ServiceName $ServiceName -InstallDir $InstallDir -ConfigPath $ConfigPath -UninstallScriptPath $uninstallScript -InstallBinPath $installBin -Version $Version
+
     Write-Host "Starting service '$ServiceName'"
     Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
 
     $runningService = Get-Service -Name $ServiceName -ErrorAction Stop
     if ($runningService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {

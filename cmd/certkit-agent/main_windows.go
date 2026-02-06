@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -15,22 +16,26 @@ import (
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/utils"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const defaultConfigPath = `C:\ProgramData\CertKit\certkit-agent\config.json`
 const defaultServiceDescription = "CertKit Agent service"
+const windowsUninstallRegPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent`
 
 func usageAndExit() {
 	fmt.Fprintf(os.Stderr, `Certkit Agent %s
 
 Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
+  certkit-agent uninstall [--service-name NAME] [--config PATH] [--purge-config]
   certkit-agent run     [--service-name NAME] [--config PATH] [--service]
 
 Examples (elevated PowerShell):
   .\certkit-agent.exe install
+  .\certkit-agent.exe uninstall
   Get-Service certkit-agent
   .\certkit-agent.exe run --config "%s"
 `, version, defaultConfigPath)
@@ -173,6 +178,53 @@ func runCmd(args []string) {
 	runAgent(*configPath, stopCh)
 }
 
+func uninstallCmd(args []string) {
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	purgeConfig := fs.Bool("purge-config", false, "remove config file")
+	fs.Parse(args)
+
+	mustBeAdmin()
+
+	manager, err := mgr.Connect()
+	if err != nil {
+		log.Fatalf("failed to connect to service manager: %v", err)
+	}
+	defer manager.Disconnect()
+
+	svcObj, err := manager.OpenService(*serviceName)
+	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			log.Printf("Service %s does not exist; nothing to remove", *serviceName)
+		} else {
+			log.Fatalf("failed to open service %s: %v", *serviceName, err)
+		}
+	} else {
+		defer svcObj.Close()
+		if err := stopWindowsService(svcObj, *serviceName); err != nil {
+			log.Fatalf("failed to stop service %s: %v", *serviceName, err)
+		}
+		if err := svcObj.Delete(); err != nil {
+			log.Fatalf("failed to delete service %s: %v", *serviceName, err)
+		}
+		log.Printf("Deleted service %s", *serviceName)
+	}
+
+	if err := removeWindowsUninstallRegistryEntry(); err != nil {
+		log.Printf("Warning: failed to remove Add/Remove Programs entry: %v", err)
+	}
+
+	if *purgeConfig {
+		if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
+			log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+		}
+		log.Printf("Removed config file %s", *configPath)
+	}
+
+	log.Printf("Uninstall completed for service %s", *serviceName)
+}
+
 func runWindowsService(serviceName, configPath string) {
 	if err := svc.Run(serviceName, &windowsService{configPath: configPath}); err != nil {
 		log.Fatalf("service failed: %v", err)
@@ -301,4 +353,40 @@ func configureRecovery(s *mgr.Service) error {
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
 	}, 86400) // reset failure count after 1 day
+}
+
+func stopWindowsService(s *mgr.Service, serviceName string) error {
+	status, err := s.Query()
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	if status.State == svc.Stopped {
+		return nil
+	}
+
+	if _, err := s.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
+		return fmt.Errorf("stop: %w", err)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err = s.Query()
+		if err != nil {
+			return fmt.Errorf("query after stop: %w", err)
+		}
+		if status.State == svc.Stopped {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return fmt.Errorf("service %s did not stop in time", serviceName)
+}
+
+func removeWindowsUninstallRegistryEntry() error {
+	err := registry.DeleteKey(registry.LOCAL_MACHINE, windowsUninstallRegPath)
+	if err != nil && !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) && !errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
+		return err
+	}
+	return nil
 }

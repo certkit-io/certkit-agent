@@ -60,7 +60,7 @@ The Docker image is typically used as a **sidecar** that writes certificates to 
 
 ## Usage
 
-The agent has two commands: `install` and `run`.
+The agent has three commands: `install`, `uninstall`, and `run`.
 
 ### `certkit-agent install`
 
@@ -110,6 +110,37 @@ certkit-agent run [--config PATH]
 
 # Run with a custom config path
 ./certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### `certkit-agent uninstall`
+
+Removes the agent service registration. Config is kept by default.
+
+Linux:
+```
+certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH] [--purge-config]
+```
+
+Windows:
+```
+certkit-agent.exe uninstall [--service-name NAME] [--config PATH] [--purge-config]
+```
+
+Examples:
+```bash
+# Linux service removal (keep config)
+sudo ./certkit-agent uninstall
+
+# Linux service removal + config cleanup
+sudo ./certkit-agent uninstall --purge-config
+```
+
+```powershell
+# Windows service removal (keep config)
+.\certkit-agent.exe uninstall
+
+# Windows service removal + config cleanup
+.\certkit-agent.exe uninstall --purge-config
 ```
 
 ## Configuration
@@ -231,18 +262,26 @@ pid: "service:nginx"
 ### Linux
 
 ```bash
-sudo systemctl stop certkit-agent
-sudo systemctl disable certkit-agent
-sudo rm -f /etc/systemd/system/certkit-agent.service
-sudo rm -rf /etc/certkit-agent
+sudo certkit-agent uninstall
+# Or with config removal:
+sudo certkit-agent uninstall --purge-config
+# If you used a custom service/unit/config path, pass the same flags used during install.
+# Example:
+sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Windows (PowerShell, elevated)
 
 ```powershell
-sc.exe stop certkit-agent
-sc.exe delete certkit-agent
-Remove-Item -Recurse -Force C:\ProgramData\CertKit
+# Preferred: Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall
+# PowerShell using the same ARP uninstall mechanism:
+$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+
+# CLI fallback:
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
+# With config removal:
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall --purge-config
 ```
 
 ## Troubleshooting 
