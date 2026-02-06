@@ -87,7 +87,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return status
 	}
 
-	shouldFetch := needsFetch || retryFull || (isPfx && configChanged)
+	shouldFetch := needsFetch || retryFull
 	if shouldFetch {
 		if isPfx {
 			log.Printf("Fetching new PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
