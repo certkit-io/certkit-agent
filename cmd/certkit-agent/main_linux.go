@@ -139,6 +139,7 @@ func uninstallCmd(args []string) {
 	unitDir := fs.String("unit-dir", defaultUnitPath, "systemd unit directory")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
 	fs.Parse(args)
+	configPathExplicit := isFlagExplicitlySet(fs, "config")
 
 	mustBeRoot()
 
@@ -161,6 +162,14 @@ func uninstallCmd(args []string) {
 		} else {
 			binaryPath = path
 		}
+		if !configPathExplicit {
+			path, err := configPathFromSystemdUnit(unitPath)
+			if err != nil {
+				log.Printf("failed to read config path from unit file %s: %v", unitPath, err)
+			} else {
+				*configPath = path
+			}
+		}
 	} else if !os.IsNotExist(err) {
 		log.Fatalf("failed to stat unit file %s: %v", unitPath, err)
 	}
@@ -182,7 +191,9 @@ func uninstallCmd(args []string) {
 				log.Fatalf("systemctl daemon-reload failed: %v", err)
 			}
 			if err := runCmdLogged("systemctl", "reset-failed", unitName); err != nil {
-				log.Printf("systemctl reset-failed failed for %s: %v", unitName, err)
+				if !isUnitNotLoadedError(err) {
+					log.Printf("systemctl reset-failed failed for %s: %v", unitName, err)
+				}
 			}
 		} else {
 			log.Printf("No unit file found at %s; nothing to remove", unitPath)
@@ -308,6 +319,48 @@ func binaryPathFromSystemdUnit(unitPath string) (string, error) {
 	return "", fmt.Errorf("ExecStart not found")
 }
 
+func configPathFromSystemdUnit(unitPath string) (string, error) {
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		return "", err
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ExecStart=") {
+			continue
+		}
+
+		cmdLine := strings.TrimSpace(strings.TrimPrefix(line, "ExecStart="))
+		if cmdLine == "" {
+			return "", fmt.Errorf("empty ExecStart")
+		}
+
+		if strings.Contains(cmdLine, `--config "`) {
+			parts := strings.SplitN(cmdLine, `--config "`, 2)
+			if len(parts) == 2 {
+				end := strings.Index(parts[1], `"`)
+				if end >= 0 {
+					return parts[1][:end], nil
+				}
+			}
+		}
+
+		fields := strings.Fields(cmdLine)
+		for i := 0; i < len(fields); i++ {
+			if fields[i] == "--config" && i+1 < len(fields) {
+				return strings.Trim(fields[i+1], `"`), nil
+			}
+			if strings.HasPrefix(fields[i], "--config=") {
+				return strings.Trim(strings.TrimPrefix(fields[i], "--config="), `"`), nil
+			}
+		}
+		return "", fmt.Errorf("--config not found in ExecStart")
+	}
+
+	return "", fmt.Errorf("ExecStart not found")
+}
+
 // If you want to give a nicer error when systemctl isn't present.
 func isCmdNotFound(err error) bool {
 	var ee *exec.Error
@@ -315,4 +368,21 @@ func isCmdNotFound(err error) bool {
 		return true
 	}
 	return false
+}
+
+func isUnitNotLoadedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not loaded")
+}
+
+func isFlagExplicitlySet(fs *flag.FlagSet, name string) bool {
+	wasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
 }

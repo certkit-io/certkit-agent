@@ -1,0 +1,18 @@
+services:
+  systemd-agent:
+    build:
+      context: ../..
+      dockerfile: dev/systemd/Dockerfile
+    hostname: "systemd-box"
+    container_name: certkit-systemd-dev
+    privileged: true
+    volumes:
+      - ../../:/workspace
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      - /run
+      - /run/lock
+    ports:
+      - "9447:443"
+    env_file:
+      - ./.env
