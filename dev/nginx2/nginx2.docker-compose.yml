@@ -1,0 +1,13 @@
+services:
+  nginx2-agent:
+    build:
+      context: ../..
+      dockerfile: dev/nginx2/Dockerfile
+    hostname: "nginx2-box"
+    working_dir: /app
+    volumes:
+      - ../../:/app
+    ports:
+      - "9446:443"
+    env_file:
+      - ./.env
