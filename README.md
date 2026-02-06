@@ -58,6 +58,10 @@ services:
 
 The Docker image is typically used as a **sidecar** that writes certificates to a shared volume. See the Docker Sidecar section in `INSTALLATION.md` for full examples.
 
+## Update
+
+Simply re-run the install snippets above to update an existing Certkit Agent installation. This is supported in both Linux and Windows.
+
 ## Usage
 
 The agent has three commands: `install`, `uninstall`, and `run`.
