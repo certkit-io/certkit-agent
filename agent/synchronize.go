@@ -171,7 +171,8 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 	if cfg.IsPfx {
 		pfxExists, err := utils.FileExists(cfg.PemDestination)
 		if err != nil {
-			return false, err
+			log.Printf("Failed to stat PFX file %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
 		}
 		if !pfxExists {
 			return true, nil
@@ -180,9 +181,29 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 		passwordFilePath := pfxPasswordFilePath(cfg.PemDestination)
 		passwordExists, err := utils.FileExists(passwordFilePath)
 		if err != nil {
-			return false, err
+			log.Printf("Failed to stat PFX password file %s: %v (forcing fetch)", passwordFilePath, err)
+			return true, nil
 		}
 		if !passwordExists {
+			return true, nil
+		}
+
+		if cfg.LatestCertificateSha1 == "" {
+			return true, nil
+		}
+
+		passwordBytes, err := os.ReadFile(passwordFilePath)
+		if err != nil {
+			log.Printf("Failed to read PFX password file %s: %v (forcing fetch)", passwordFilePath, err)
+			return true, nil
+		}
+
+		actualSha1, err := utils.GetCertificateSha1FromPfx(cfg.PemDestination, string(passwordBytes))
+		if err != nil {
+			log.Printf("Failed to read certificate SHA1 from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		if !strings.EqualFold(actualSha1, cfg.LatestCertificateSha1) {
 			return true, nil
 		}
 
