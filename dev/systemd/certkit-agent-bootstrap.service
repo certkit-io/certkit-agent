@@ -1,0 +1,14 @@
+[Unit]
+Description=Bootstrap CertKit Agent from local binary
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-/workspace/dev/systemd/.env
+ExecStart=/usr/local/bin/bootstrap-certkit-agent.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

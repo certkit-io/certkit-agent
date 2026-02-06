@@ -17,6 +17,10 @@ if [[ ! -f "${INSTALL_DIR}/${BIN_NAME}" ]]; then
   FIRST_INSTALL=1
 fi
 
+echo ""
+echo "Installing CertkitAgent..."
+echo ""
+
 # Resolve release tag (latest unless VERSION set)
 if [[ -n "${VERSION:-}" ]]; then
   TAG="$VERSION"
@@ -80,7 +84,11 @@ fi
 echo "Installation complete."
 if [[ -n "${REGISTRATION_KEY:-}" ]]; then
   app_id="${REGISTRATION_KEY%%.*}"
+  echo ""
   echo "Finish configuring this agent: https://app.certkit.io/app/${app_id}/agents/"
+  echo ""
 else
+  echo ""
   echo "Finish configuring this agent in the CertKit UI: https://app.certkit.io"
+  echo ""
 fi

@@ -60,7 +60,7 @@ The Docker image is typically used as a **sidecar** that writes certificates to 
 
 ## Usage
 
-The agent has two commands: `install` and `run`.
+The agent has three commands: `install`, `uninstall`, and `run`.
 
 ### `certkit-agent install`
 
@@ -110,6 +110,31 @@ certkit-agent run [--config PATH]
 
 # Run with a custom config path
 ./certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### `certkit-agent uninstall`
+
+Removes the agent service registration, config, and installed binary.
+
+Linux:
+```
+certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
+```
+
+Windows:
+```
+certkit-agent.exe uninstall [--service-name NAME] [--config PATH]
+```
+
+Examples:
+```bash
+# Linux uninstall (service + config)
+sudo ./certkit-agent uninstall
+```
+
+```powershell
+# Windows uninstall (service + config)
+.\certkit-agent.exe uninstall
 ```
 
 ## Configuration
@@ -230,19 +255,28 @@ pid: "service:nginx"
 
 ### Linux
 
+`uninstall` removes the systemd unit, config, and installed binary path.
+
 ```bash
-sudo systemctl stop certkit-agent
-sudo systemctl disable certkit-agent
-sudo rm -f /etc/systemd/system/certkit-agent.service
-sudo rm -rf /etc/certkit-agent
+sudo certkit-agent uninstall
+# If you used a custom service/unit/config path, pass the same flags used during install.
+# Example:
+sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Windows (PowerShell, elevated)
 
+ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
+
 ```powershell
-sc.exe stop certkit-agent
-sc.exe delete certkit-agent
-Remove-Item -Recurse -Force C:\ProgramData\CertKit
+# Preferred: Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall
+# PowerShell using the same ARP uninstall mechanism:
+$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+
+# CLI fallback:
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
+# CLI fallback removes service + config + C:\ProgramData\CertKit.
 ```
 
 ## Troubleshooting 
