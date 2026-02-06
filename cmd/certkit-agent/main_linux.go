@@ -28,7 +28,7 @@ func usageAndExit() {
 
 Usage:
   certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
-  certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH] [--purge-config]
+  certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
   certkit-agent run     [--config PATH]
 
 Examples:
@@ -138,7 +138,6 @@ func uninstallCmd(args []string) {
 	serviceName := fs.String("service-name", defaultServiceName, "systemd service name")
 	unitDir := fs.String("unit-dir", defaultUnitPath, "systemd unit directory")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
-	purgeConfig := fs.Bool("purge-config", false, "remove config file")
 	fs.Parse(args)
 
 	mustBeRoot()
@@ -153,8 +152,15 @@ func uninstallCmd(args []string) {
 	unitName := *serviceName + ".service"
 	unitPath := filepath.Join(*unitDir, unitName)
 	unitExists := false
+	binaryPath := ""
 	if _, err := os.Stat(unitPath); err == nil {
 		unitExists = true
+		path, err := binaryPathFromSystemdUnit(unitPath)
+		if err != nil {
+			log.Printf("failed to read binary path from unit file %s: %v", unitPath, err)
+		} else {
+			binaryPath = path
+		}
 	} else if !os.IsNotExist(err) {
 		log.Fatalf("failed to stat unit file %s: %v", unitPath, err)
 	}
@@ -192,16 +198,28 @@ func uninstallCmd(args []string) {
 		}
 	}
 
-	if *purgeConfig {
-		if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
-			log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+	if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+	}
+	log.Printf("Removed config file %s", *configPath)
+
+	if binaryPath == "" {
+		exe, err := os.Executable()
+		if err == nil {
+			exe, err = filepath.EvalSymlinks(exe)
+			if err == nil {
+				binaryPath = exe
+			}
 		}
+	}
+	if binaryPath != "" {
+		if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
+			log.Fatalf("failed to remove binary %s: %v", binaryPath, err)
+		}
+		log.Printf("Removed binary %s", binaryPath)
 	}
 
 	log.Printf("Uninstall completed for service %s", *serviceName)
-	if *purgeConfig {
-		log.Printf("Removed config file %s", *configPath)
-	}
 }
 
 // --- helpers ---
@@ -253,6 +271,41 @@ func shellEscape(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return `"` + s + `"`
+}
+
+func binaryPathFromSystemdUnit(unitPath string) (string, error) {
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		return "", err
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ExecStart=") {
+			continue
+		}
+
+		cmdLine := strings.TrimSpace(strings.TrimPrefix(line, "ExecStart="))
+		if cmdLine == "" {
+			return "", fmt.Errorf("empty ExecStart")
+		}
+
+		if strings.HasPrefix(cmdLine, `"`) {
+			end := strings.Index(cmdLine[1:], `"`)
+			if end < 0 {
+				return "", fmt.Errorf("invalid quoted ExecStart: %s", cmdLine)
+			}
+			return cmdLine[1 : 1+end], nil
+		}
+
+		fields := strings.Fields(cmdLine)
+		if len(fields) == 0 {
+			return "", fmt.Errorf("invalid ExecStart: %s", cmdLine)
+		}
+		return fields[0], nil
+	}
+
+	return "", fmt.Errorf("ExecStart not found")
 }
 
 // If you want to give a nicer error when systemctl isn't present.

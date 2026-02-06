@@ -30,7 +30,7 @@ func usageAndExit() {
 
 Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
-  certkit-agent uninstall [--service-name NAME] [--config PATH] [--purge-config]
+  certkit-agent uninstall [--service-name NAME] [--config PATH]
   certkit-agent run     [--service-name NAME] [--config PATH] [--service]
 
 Examples (elevated PowerShell):
@@ -182,7 +182,6 @@ func uninstallCmd(args []string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
-	purgeConfig := fs.Bool("purge-config", false, "remove config file")
 	fs.Parse(args)
 
 	mustBeAdmin()
@@ -215,11 +214,18 @@ func uninstallCmd(args []string) {
 		log.Printf("Warning: failed to remove Add/Remove Programs entry: %v", err)
 	}
 
-	if *purgeConfig {
-		if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
-			log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+	if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("failed to remove config file %s: %v", *configPath, err)
+	}
+	log.Printf("Removed config file %s", *configPath)
+
+	programData := os.Getenv("ProgramData")
+	if programData != "" {
+		programDataCertKit := filepath.Join(programData, "CertKit")
+		if err := os.RemoveAll(programDataCertKit); err != nil {
+			log.Fatalf("failed to remove ProgramData directory %s: %v", programDataCertKit, err)
 		}
-		log.Printf("Removed config file %s", *configPath)
+		log.Printf("Removed ProgramData directory %s", programDataCertKit)
 	}
 
 	log.Printf("Uninstall completed for service %s", *serviceName)

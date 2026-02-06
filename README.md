@@ -114,33 +114,27 @@ certkit-agent run [--config PATH]
 
 ### `certkit-agent uninstall`
 
-Removes the agent service registration. Config is kept by default.
+Removes the agent service registration, config, and installed binary.
 
 Linux:
 ```
-certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH] [--purge-config]
+certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
 ```
 
 Windows:
 ```
-certkit-agent.exe uninstall [--service-name NAME] [--config PATH] [--purge-config]
+certkit-agent.exe uninstall [--service-name NAME] [--config PATH]
 ```
 
 Examples:
 ```bash
-# Linux service removal (keep config)
+# Linux uninstall (service + config)
 sudo ./certkit-agent uninstall
-
-# Linux service removal + config cleanup
-sudo ./certkit-agent uninstall --purge-config
 ```
 
 ```powershell
-# Windows service removal (keep config)
+# Windows uninstall (service + config)
 .\certkit-agent.exe uninstall
-
-# Windows service removal + config cleanup
-.\certkit-agent.exe uninstall --purge-config
 ```
 
 ## Configuration
@@ -261,16 +255,18 @@ pid: "service:nginx"
 
 ### Linux
 
+`uninstall` removes the systemd unit, config, and installed binary path.
+
 ```bash
 sudo certkit-agent uninstall
-# Or with config removal:
-sudo certkit-agent uninstall --purge-config
 # If you used a custom service/unit/config path, pass the same flags used during install.
 # Example:
 sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Windows (PowerShell, elevated)
+
+ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
 
 ```powershell
 # Preferred: Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall
@@ -280,8 +276,7 @@ Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb
 
 # CLI fallback:
 & "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
-# With config removal:
-& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall --purge-config
+# CLI fallback removes service + config + C:\ProgramData\CertKit.
 ```
 
 ## Troubleshooting 

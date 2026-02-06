@@ -44,16 +44,10 @@ If you don't use systemd, you can still run the agent directly:
 
 ### Linux Uninstall
 
-Service-only uninstall (keep config):
+Uninstall removes the systemd unit, config file, and installed binary:
 
 ```bash
 sudo certkit-agent uninstall
-```
-
-Service + config uninstall:
-
-```bash
-sudo certkit-agent uninstall --purge-config
 ```
 
 If you installed with custom values, pass the same options used at install time:
@@ -246,6 +240,8 @@ C:\Program Files\CertKit\bin\uninstall.ps1
 
 ### Windows Uninstall
 
+ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
+
 Preferred:
 - Open **Settings -> Apps -> Installed apps**.
 - Select **CertKit Agent** and click **Uninstall**.
@@ -261,12 +257,7 @@ CLI fallback (elevated PowerShell):
 
 ```powershell
 & "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
-```
-
-With config removal:
-
-```powershell
-& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall --purge-config
+# CLI fallback removes service + config + C:\ProgramData\CertKit.
 ```
 
 ### Logs

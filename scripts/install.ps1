@@ -48,8 +48,7 @@ function Write-LocalUninstallScript {
 Param(
     [string]$ServiceName = "certkit-agent",
     [string]$InstallDir = "C:\\Program Files\\CertKit",
-    [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json",
-    [switch]$PurgeConfig
+    [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,17 +65,24 @@ Assert-Admin
 
 $binPath = Join-Path $InstallDir "bin\\certkit-agent.exe"
 if (Test-Path $binPath) {
-    if ($PurgeConfig) {
-        & $binPath uninstall --service-name $ServiceName --config $ConfigPath --purge-config
-    } else {
-        & $binPath uninstall --service-name $ServiceName --config $ConfigPath
-    }
+    & $binPath uninstall --service-name $ServiceName --config $ConfigPath
 } else {
     Write-Host "certkit-agent binary not found at $binPath. Nothing to run."
 }
 
-if (Test-Path $binPath) {
-    Remove-Item -Force $binPath
+if (Test-Path $ConfigPath) {
+    Remove-Item -Path $ConfigPath -Force -ErrorAction SilentlyContinue
+}
+
+if (-not [string]::IsNullOrWhiteSpace($env:ProgramData)) {
+    $programDataCertKit = Join-Path $env:ProgramData "CertKit"
+    if (Test-Path $programDataCertKit) {
+        Remove-Item -Path $programDataCertKit -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if (Test-Path $InstallDir) {
+    Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CertKit Agent"
@@ -131,6 +137,10 @@ Assert-Admin
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+Write-Host ""
+Write-Host "Installing CertKit Agent..."
+Write-Host ""
+
 $arch = Get-Arch
 $binName = "certkit-agent"
 $assetBin = "${binName}_windows_${arch}.exe"
@@ -184,7 +194,11 @@ try {
         }
     }
 
-    Write-Host "Installing binary to $installBin"
+    if (Test-Path $installBin) {
+        Write-Host "Updating binary at $installBin"
+    } else {
+        Write-Host "Installing binary to $installBin"
+    }
     Copy-Item -Force -Path $binPath -Destination $installBin
 
     $configDir = Split-Path -Parent $ConfigPath
@@ -216,10 +230,14 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
         $appId = ($env:REGISTRATION_KEY -split "\.")[0]
         Write-Host "Done. Service '$ServiceName' should be running."
+        Write-Host ""
         Write-Host "Authorize and configure this agent: https://app.certkit.io/app/$appId/agents/"
+        Write-Host ""
     } else {
         Write-Host "Done. Service '$ServiceName' should be running."
+        Write-Host ""
         Write-Host "Finish configuring this agent in the CertKit UI: https://app.certkit.io"
+        Write-Host ""
     }
 } finally {
     if (Test-Path $tmp) {
