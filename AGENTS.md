@@ -63,6 +63,10 @@ The goal is a codebase that is approachable and reliable. **Simple, procedural, 
 - Use clear error messages that describe the operation that failed.
 - When adding OS-specific behavior, isolate it cleanly and keep the logic obvious.
 
+## Temporary Workflow Note
+
+- Do **not** run `go test` commands for now unless explicitly requested.
+
 ## Adding New Inventory Providers
 
 1. Add a new provider type that satisfies `inventory.Provider`.
