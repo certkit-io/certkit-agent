@@ -22,6 +22,7 @@ docker compose -f systemd.docker-compose.yml up --build
 
 Monitor
 ```bash
+docker exec -it certkit-systemd-dev systemctl status certkit-agent-bootstrap --no-pager
 docker exec -it certkit-systemd-dev systemctl status certkit-agent --no-pager
 docker exec -it certkit-systemd-dev systemctl status nginx --no-pager
 docker exec -it certkit-systemd-dev journalctl -u certkit-agent -f
@@ -43,3 +44,4 @@ Notes
 - Use `CERTKIT_AGENT_SOURCE=local` (default) to build from local source.
 - Use `CERTKIT_AGENT_SOURCE=release` to install from the published install script.
 - The bootstrap unit runs at container boot and re-installs/updates the service each time.
+- If units do not appear enabled after changes, rebuild with `--no-cache`.

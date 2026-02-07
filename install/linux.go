@@ -167,6 +167,8 @@ func UninstallLinux(args []string, defaultServiceName string) {
 		}
 	}
 
+	unregisterAgent(*configPath)
+
 	if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("failed to remove config file %s: %v", *configPath, err)
 	}
