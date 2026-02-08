@@ -67,7 +67,9 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		cfg.LastStatus == statusErrorWriteCert ||
 		cfg.LastStatus == statusErrorGeneral
 
-	if cfg.PemDestination == "" || (!cfg.AllInOne && cfg.KeyDestination == "") {
+	isPfx := cfg.IsPfx
+	requiresKeyDestination := !cfg.AllInOne && !isPfx
+	if cfg.PemDestination == "" || (requiresKeyDestination && cfg.KeyDestination == "") {
 		log.Printf("Skipping certificate config %s: missing destination path(s)", cfg.Id)
 		status.Status = statusErrorGeneral
 		status.Message = "Error: missing destination path(s) in configuration"
@@ -85,25 +87,48 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return status
 	}
 
-	if needsFetch || retryFull {
-		log.Printf("Fetching new certificate for config %s and certificate %s", cfg.Id, cfg.CertificateId)
-		response, err := api.FetchCertificate(cfg.Id, cfg.CertificateId)
-		if err != nil {
-			status.Status = statusErrorGetCert
-			status.Message = fmt.Sprintf("Error fetching certificate: %v", err)
-			return status
-		}
-		if response == nil {
-			log.Printf("Received no-content reply from fetch for (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
-			status.Status = statusErrorGetCert
-			status.Message = "Error: no issued certificate returned"
-			return status
-		}
+	shouldFetch := needsFetch || retryFull
+	if shouldFetch {
+		if isPfx {
+			log.Printf("Fetching new PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
+			pfxResponse, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
+			if err != nil {
+				status.Status = statusErrorGetCert
+				status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
+				return status
+			}
+			if pfxResponse == nil || len(pfxResponse.PfxBytes) == 0 {
+				log.Printf("Received no-content reply from fetch-pfx for (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
+				status.Status = statusErrorGetCert
+				status.Message = "Error: no issued PFX returned"
+				return status
+			}
 
-		if err := writeCertificateFiles(cfg, response); err != nil {
-			status.Status = statusErrorWriteCert
-			status.Message = fmt.Sprintf("Error writing certificate files: %v", err)
-			return status
+			if err := writePfxFiles(cfg, pfxResponse); err != nil {
+				status.Status = statusErrorWriteCert
+				status.Message = fmt.Sprintf("Error writing PFX files: %v", err)
+				return status
+			}
+		} else {
+			log.Printf("Fetching new certificate for config %s and certificate %s", cfg.Id, cfg.CertificateId)
+			response, err := api.FetchCertificate(cfg.Id, cfg.CertificateId)
+			if err != nil {
+				status.Status = statusErrorGetCert
+				status.Message = fmt.Sprintf("Error fetching certificate: %v", err)
+				return status
+			}
+			if response == nil {
+				log.Printf("Received no-content reply from fetch for (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
+				status.Status = statusErrorGetCert
+				status.Message = "Error: no issued certificate returned"
+				return status
+			}
+
+			if err := writeCertificateFiles(cfg, response); err != nil {
+				status.Status = statusErrorWriteCert
+				status.Message = fmt.Sprintf("Error writing certificate files: %v", err)
+				return status
+			}
 		}
 	} else {
 		log.Printf("Certificate is up to date for config %s", cfg.Id)
@@ -143,6 +168,48 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 }
 
 func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
+	if cfg.IsPfx {
+		pfxExists, err := utils.FileExists(cfg.PemDestination)
+		if err != nil {
+			log.Printf("Failed to stat PFX file %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		if !pfxExists {
+			return true, nil
+		}
+
+		passwordFilePath := pfxPasswordFilePath(cfg.PemDestination)
+		passwordExists, err := utils.FileExists(passwordFilePath)
+		if err != nil {
+			log.Printf("Failed to stat PFX password file %s: %v (forcing fetch)", passwordFilePath, err)
+			return true, nil
+		}
+		if !passwordExists {
+			return true, nil
+		}
+
+		if cfg.LatestCertificateSha1 == "" {
+			return true, nil
+		}
+
+		passwordBytes, err := os.ReadFile(passwordFilePath)
+		if err != nil {
+			log.Printf("Failed to read PFX password file %s: %v (forcing fetch)", passwordFilePath, err)
+			return true, nil
+		}
+
+		actualSha1, err := utils.GetCertificateSha1FromPfx(cfg.PemDestination, string(passwordBytes))
+		if err != nil {
+			log.Printf("Failed to read certificate SHA1 from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		if !strings.EqualFold(actualSha1, cfg.LatestCertificateSha1) {
+			return true, nil
+		}
+
+		return false, nil
+	}
+
 	certExists, err := utils.FileExists(cfg.PemDestination)
 	if err != nil {
 		return false, err
@@ -249,6 +316,29 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 	return nil
 }
 
+func writePfxFiles(cfg config.CertificateConfiguration, response *api.FetchPfxResponse) error {
+	if len(response.PfxBytes) == 0 {
+		return fmt.Errorf("missing PFX payload")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.PemDestination), 0o755); err != nil {
+		return err
+	}
+
+	log.Printf("Writing PFX to %s", cfg.PemDestination)
+	if err := utils.WriteFileAtomic(cfg.PemDestination, response.PfxBytes, 0o600); err != nil {
+		return err
+	}
+
+	passwordFilePath := pfxPasswordFilePath(cfg.PemDestination)
+	log.Printf("Writing PFX password to %s", passwordFilePath)
+	if err := utils.WriteFileAtomic(passwordFilePath, []byte(response.Password), 0o600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func splitLeafAndChain(certPem string) (string, string, error) {
 	data := []byte(certPem)
 	var leaf []byte
@@ -293,7 +383,9 @@ func applyCertificatePermissions(cfg config.CertificateConfiguration) error {
 	}
 
 	paths := []string{cfg.PemDestination}
-	if !cfg.AllInOne {
+	if cfg.IsPfx {
+		paths = append(paths, pfxPasswordFilePath(cfg.PemDestination))
+	} else if !cfg.AllInOne {
 		paths = append(paths, cfg.KeyDestination)
 	}
 	chainDestination := strings.TrimSpace(cfg.ChainDestination)
@@ -318,6 +410,16 @@ func applyCertificatePermissions(cfg config.CertificateConfiguration) error {
 	}
 
 	return nil
+}
+
+func pfxPasswordFilePath(pfxPath string) string {
+	fileName := filepath.Base(pfxPath)
+	fileExt := filepath.Ext(fileName)
+	fileStem := strings.TrimSuffix(fileName, fileExt)
+	if fileStem == "" {
+		fileStem = fileName
+	}
+	return filepath.Join(filepath.Dir(pfxPath), fileStem+".pfxpassword.txt")
 }
 
 func applyFileOwnershipAndPermissions(cfg config.CertificateConfiguration, path string) error {

@@ -17,6 +17,10 @@ if [[ ! -f "${INSTALL_DIR}/${BIN_NAME}" ]]; then
   FIRST_INSTALL=1
 fi
 
+echo ""
+echo "Installing CertkitAgent..."
+echo ""
+
 # Resolve release tag (latest unless VERSION set)
 if [[ -n "${VERSION:-}" ]]; then
   TAG="$VERSION"
@@ -64,7 +68,8 @@ echo "Verifying checksum"
 echo "Installing binary to ${INSTALL_DIR}/${BIN_NAME}"
 install -m 0755 "$tmp/${ASSET_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
 
-echo "Running certkit-agent install"
+echo "Running certkit-agent install..."
+echo "Installation output:"
 /usr/local/bin/${BIN_NAME} install
 
 if [[ $FIRST_INSTALL -eq 0 ]]; then
@@ -76,4 +81,14 @@ if [[ $FIRST_INSTALL -eq 0 ]]; then
   fi
 fi
 
-echo "✅ CertKit Agent installed/updated and running"
+echo "Installation complete."
+if [[ -n "${REGISTRATION_KEY:-}" ]]; then
+  app_id="${REGISTRATION_KEY%%.*}"
+  echo ""
+  echo "Finish configuring this agent: https://app.certkit.io/app/${app_id}/agents/"
+  echo ""
+else
+  echo ""
+  echo "Finish configuring this agent in the CertKit UI: https://app.certkit.io"
+  echo ""
+fi

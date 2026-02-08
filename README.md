@@ -27,7 +27,7 @@ Get the full install snippet from your [CertKit Account](https://app.certkit.io)
 ### Windows (PowerShell)
 
 Run from an elevated PowerShell prompt. This downloads the latest release, verifies it, installs the service, and starts the agent:
-See `INSTALLATION.md` for more Windows details.
+See [INSTALLATION.md](INSTALLATION.md) for more Windows details.
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
@@ -58,9 +58,13 @@ services:
 
 The Docker image is typically used as a **sidecar** that writes certificates to a shared volume. See the Docker Sidecar section in `INSTALLATION.md` for full examples.
 
+## Update
+
+Simply re-run the install snippets above to update an existing Certkit Agent installation. This is supported in both Linux and Windows.
+
 ## Usage
 
-The agent has two commands: `install` and `run`.
+The agent has three commands: `install`, `uninstall`, and `run`.
 
 ### `certkit-agent install`
 
@@ -110,6 +114,31 @@ certkit-agent run [--config PATH]
 
 # Run with a custom config path
 ./certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### `certkit-agent uninstall`
+
+Removes the agent service registration, config, and installed binary.
+
+Linux:
+```
+certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
+```
+
+Windows:
+```
+certkit-agent.exe uninstall [--service-name NAME] [--config PATH]
+```
+
+Examples:
+```bash
+# Linux uninstall (service + config)
+sudo ./certkit-agent uninstall
+```
+
+```powershell
+# Windows uninstall (service + config)
+.\certkit-agent.exe uninstall
 ```
 
 ## Configuration
@@ -185,6 +214,8 @@ Key points:
 - Setup: mount `/var/run/docker.sock` into the agent container.
 - CertKit update command: `docker exec <nginx_container> nginx -s reload`.
 - Best for: dev or trusted environments.
+  Security: grants root-level control of the Docker host via the socket.
+  Ops: simplest and most reliable, no custom web container scripts.
 
 ```yaml
 # agent container
@@ -197,6 +228,8 @@ volumes:
 - CertKit update command: *(leave empty / no-op)*.
 - Best for: avoiding Docker socket while keeping automatic reloads.
   See `dev/docker-sidecar/nginx-start.sh` for a minimal watcher example.
+  Security: safest option (no Docker socket).
+  Ops: requires a watcher and a custom entrypoint; watcher failures stop reloads.
 
 ```yaml
 # nginx container
@@ -208,6 +241,8 @@ environment:
 - Setup: run agent container with `pid: "service:nginx"` to share PID namespace.
 - CertKit update command: `kill -HUP 1`.
 - Best for: socket-less reload with minimal extra tooling.
+  Security: more isolated than Docker socket, less isolated than separate PID namespaces.
+  Ops: no watcher, but relies on PID 1 handling `HUP` correctly.
 
 ```yaml
 # agent container
@@ -224,19 +259,28 @@ pid: "service:nginx"
 
 ### Linux
 
+`uninstall` removes the systemd unit, config, and installed binary path.
+
 ```bash
-sudo systemctl stop certkit-agent
-sudo systemctl disable certkit-agent
-sudo rm -f /etc/systemd/system/certkit-agent.service
-sudo rm -rf /etc/certkit-agent
+sudo certkit-agent uninstall
+# If you used a custom service/unit/config path, pass the same flags used during install.
+# Example:
+sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Windows (PowerShell, elevated)
 
+ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
+
 ```powershell
-sc.exe stop certkit-agent
-sc.exe delete certkit-agent
-Remove-Item -Recurse -Force C:\ProgramData\CertKit
+# Preferred: Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall
+# PowerShell using the same ARP uninstall mechanism:
+$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+
+# CLI fallback:
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
+# CLI fallback removes service + config + C:\ProgramData\CertKit.
 ```
 
 ## Troubleshooting 

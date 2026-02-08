@@ -1,16 +1,18 @@
-# Installation Guide
+﻿# Installation Guide
 
 This document expands on the install notes in the README and focuses on practical, repeatable setups for Linux, Windows, and Docker sidecar deployments.
 
 ## Table of Contents
 - [Linux](#linux)
   - [Systemd Service (Recommended)](#systemd-service-recommended)
+  - [Linux Uninstall](#linux-uninstall)
   - [Docker Sidecar](#docker-sidecar)
     - [Mode 1: Socket exec (default)](#mode-1-socket-exec-default)
     - [Mode 2: Watch + reload](#mode-2-watch--reload)
     - [Mode 3: PID namespace](#mode-3-pid-namespace)
 - [Windows](#windows)
   - [Windows Service Install](#windows-service-install)
+  - [Windows Uninstall](#windows-uninstall)
   - [Logs](#logs)
   - [IIS vs PEM/Key Workflows](#iis-vs-pemkey-workflows)
   - [Apache on Windows](#apache-on-windows)
@@ -34,10 +36,24 @@ systemctl status certkit-agent
 journalctl -u certkit-agent -f
 ```
 
-If you don’t use systemd, you can still run the agent directly:
+If you don't use systemd, you can still run the agent directly:
 
 ```bash
 ./certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### Linux Uninstall
+
+Uninstall removes the systemd unit, config file, and installed binary:
+
+```bash
+sudo certkit-agent uninstall
+```
+
+If you installed with custom values, pass the same options used at install time:
+
+```bash
+sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
 ```
 
 ### Docker Sidecar
@@ -49,12 +65,26 @@ Common setup:
 - CertKit destinations: `/certs/<name>.crt` and `/certs/<name>.key`.
 - Reload mechanism depends on the mode (see below).
 
+At a high level, the agent writes new files into `/certs`, and your web server
+reloads them without rebuilding the container or restarting your service.
+
+Choosing a reload mode:
+- **Socket exec:** simplest and most reliable, but requires Docker socket access.
+- **Watch + reload:** avoids the Docker socket and is safest, but needs a watcher.
+- **PID namespace:** avoids the socket and is lightweight, but reduces isolation.
+
 Below are complete, minimal compose examples you can adapt to your existing stack.
 They assume a shared `certs` volume and an nginx container named `web`.
 
 #### Mode 1: Socket exec (default)
 
 **How it works:** the agent calls `docker exec` to reload the web server container.
+
+**Security tradeoff:** mounting `/var/run/docker.sock` gives the agent root-level
+control of the Docker host. Use in trusted environments only.
+
+**Operational tradeoff:** very simple and reliable, no custom scripts in the web
+server container.
 
 **Setup essentials:**
 - Mount the Docker socket into the agent container.
@@ -74,11 +104,9 @@ services:
       - "8443:443"
 
   certkit-agent:
-    image: certkit-agent-sidecar:dev
+    image: ghcr.io/certkit-io/certkit-agent:latest
     environment:
-      CERTKIT_API_BASE: https://app.certkit.io
       REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
     volumes:
       - ./config:/etc/certkit-agent
       - ./certs:/certs
@@ -94,6 +122,12 @@ docker exec web nginx -s reload
 #### Mode 2: Watch + reload
 
 **How it works:** the web server container watches the shared cert directory and reloads itself.
+
+**Security tradeoff:** safest option because the agent doesn't need the Docker
+socket and can't control other containers.
+
+**Operational tradeoff:** requires a file watcher and a custom entrypoint. If
+the watcher dies, reloads stop until the container restarts.
 
 **Setup essentials:**
 - Enable a file watcher in the web server container.
@@ -117,11 +151,9 @@ services:
       - "8443:443"
 
   certkit-agent:
-    image: certkit-agent-sidecar:dev
+    image: ghcr.io/certkit-io/certkit-agent:latest
     environment:
-      CERTKIT_API_BASE: https://app.certkit.io
       REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
     volumes:
       - ./config:/etc/certkit-agent
       - ./certs:/certs
@@ -147,7 +179,13 @@ exec nginx -g 'daemon off;'
 
 #### Mode 3: PID namespace
 
-**How it works:** the agent shares the web server’s PID namespace and sends it a HUP.
+**How it works:** the agent shares the web server's PID namespace and sends it a HUP.
+
+**Security tradeoff:** more isolated than Docker socket, but less isolated than
+separate PID namespaces (the agent can see and signal the web server process).
+
+**Operational tradeoff:** no extra tooling, but you must ensure PID 1 in the web
+container handles `HUP` correctly.
 
 **Setup essentials:**
 - Share PID namespace with the web server container.
@@ -167,12 +205,10 @@ services:
       - "8443:443"
 
   certkit-agent:
-    image: certkit-agent-sidecar:dev
+    image: ghcr.io/certkit-io/certkit-agent:latest
     pid: "service:web"
     environment:
-      CERTKIT_API_BASE: https://app.certkit.io
       REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-      CERTKIT_CONFIG_PATH: /etc/certkit-agent/config.json
     volumes:
       - ./config:/etc/certkit-agent
       - ./certs:/certs
@@ -195,6 +231,35 @@ $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
+The installer also writes an Add/Remove Programs entry ("CertKit Agent") that
+points to a local uninstall script at:
+
+```
+C:\Program Files\CertKit\bin\uninstall.ps1
+```
+
+### Windows Uninstall
+
+ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
+
+Preferred:
+- Open **Settings -> Apps -> Installed apps**.
+- Select **CertKit Agent** and click **Uninstall**.
+
+PowerShell using the same ARP uninstall mechanism:
+
+```powershell
+$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+```
+
+CLI fallback (elevated PowerShell):
+
+```powershell
+& "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
+# CLI fallback removes service + config + C:\ProgramData\CertKit.
+```
+
 ### Logs
 
 The Windows service writes logs to:
@@ -214,4 +279,6 @@ Apache on Windows is supported for inventory discovery and PEM/key workflows. Se
 
 ## Need Help or Want Support for More Software?
 
-If you want support for additional software, or you run into issues, please open an issue or submit a PR. We’re customer‑driven and happy to help.
+If you want support for additional software, or you run into issues, please open an issue or submit a PR. We're customer-driven and happy to help.
+
+

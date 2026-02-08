@@ -12,25 +12,24 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/certkit-io/certkit-agent/config"
-	"github.com/certkit-io/certkit-agent/utils"
+	agentinstall "github.com/certkit-io/certkit-agent/install"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
 )
 
-const defaultConfigPath = `C:\ProgramData\CertKit\certkit-agent\config.json`
-const defaultServiceDescription = "CertKit Agent service"
+const defaultConfigPath = agentinstall.DefaultWindowsConfigPath
 
 func usageAndExit() {
 	fmt.Fprintf(os.Stderr, `Certkit Agent %s
 
 Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
+  certkit-agent uninstall [--service-name NAME] [--config PATH]
   certkit-agent run     [--service-name NAME] [--config PATH] [--service]
 
 Examples (elevated PowerShell):
   .\certkit-agent.exe install
+  .\certkit-agent.exe uninstall
   Get-Service certkit-agent
   .\certkit-agent.exe run --config "%s"
 `, version, defaultConfigPath)
@@ -38,111 +37,13 @@ Examples (elevated PowerShell):
 }
 
 func installCmd(args []string) {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
-	binPath := fs.String("bin-path", "", "path to certkit-agent binary (default: current executable)")
-	configPath := fs.String("config", defaultConfigPath, "path to config.json")
-	fs.Parse(args)
-
 	mustBeAdmin()
+	agentinstall.InstallWindows(args, defaultServiceName)
+}
 
-	exe := *binPath
-	if exe == "" {
-		var err error
-		exe, err = os.Executable()
-		if err != nil {
-			log.Fatalf("failed to determine executable path: %v", err)
-		}
-		exe, err = filepath.EvalSymlinks(exe)
-		if err != nil {
-			log.Fatalf("failed to resolve executable symlinks: %v", err)
-		}
-	}
-
-	if _, err := os.Stat(exe); err != nil {
-		log.Fatalf("binary path does not exist: %s (%v)", exe, err)
-	}
-	if !filepath.IsAbs(exe) {
-		log.Fatalf("--bin-path must be an absolute path: %s", exe)
-	}
-	if !filepath.IsAbs(*configPath) {
-		log.Fatalf("--config must be an absolute path: %s", *configPath)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(*configPath), 0o755); err != nil {
-		log.Fatalf("failed to create config dir: %v", err)
-	}
-
-	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
-		log.Printf("Config not found, creating %s", *configPath)
-		if err := config.CreateInitialConfig(*configPath); err != nil {
-			log.Fatalf("failed to create config: %v", err)
-		}
-	} else {
-		log.Printf("Config already exists at %s", *configPath)
-	}
-
-	manager, err := mgr.Connect()
-	if err != nil {
-		log.Fatalf("failed to connect to service manager: %v", err)
-	}
-	defer manager.Disconnect()
-
-	svcObj, err := manager.OpenService(*serviceName)
-	if err != nil {
-		svcObj, err = manager.CreateService(
-			*serviceName,
-			exe,
-			mgr.Config{
-				DisplayName:      *serviceName,
-				StartType:        mgr.StartAutomatic,
-				ServiceStartName: "LocalSystem",
-				Description:      defaultServiceDescription,
-			},
-			"run",
-			"--service",
-			"--config",
-			*configPath,
-		)
-		if err != nil {
-			log.Fatalf("failed to create service %s: %v", *serviceName, err)
-		}
-		defer svcObj.Close()
-	} else {
-		defer svcObj.Close()
-		binLine := fmt.Sprintf(`"%s" run --service --config "%s"`, exe, *configPath)
-		current, err := svcObj.Config()
-		if err != nil {
-			log.Fatalf("failed to read service config %s: %v", *serviceName, err)
-		}
-		current.DisplayName = *serviceName
-		current.StartType = mgr.StartAutomatic
-		current.ServiceStartName = "LocalSystem"
-		current.BinaryPathName = binLine
-		current.Description = defaultServiceDescription
-		if err := svcObj.UpdateConfig(current); err != nil {
-			log.Fatalf("failed to update service %s: %v", *serviceName, err)
-		}
-	}
-
-	if err := configureRecovery(svcObj); err != nil {
-		log.Fatalf("failed to configure service recovery: %v", err)
-	}
-
-	status, err := svcObj.Query()
-	if err != nil {
-		log.Fatalf("failed to query service %s: %v", *serviceName, err)
-	}
-	if status.State != svc.Running {
-		if err := svcObj.Start(); err != nil {
-			log.Fatalf("failed to start service %s: %v", *serviceName, err)
-		}
-	}
-
-	machineId, _ := utils.GetStableMachineID()
-	log.Printf("Installed and started %s on machine: %s", *serviceName, machineId)
-	log.Printf("   Get-Service %s", *serviceName)
-	log.Printf("Service runs as LocalSystem for LocalMachine cert store access.")
+func uninstallCmd(args []string) {
+	mustBeAdmin()
+	agentinstall.UninstallWindows(args, defaultServiceName)
 }
 
 func runCmd(args []string) {
@@ -245,8 +146,8 @@ func isElevatedAdmin() (bool, error) {
 }
 
 const (
-	maxLogSize = 5 * 1024 * 1024 // trigger rotation at 5 MB
-	keepLines  = 10000           // keep last 10k lines after rotation
+	maxLogSize = 5 * 1024 * 1024
+	keepLines  = 10000
 )
 
 func initServiceLogging(configPath string) {
@@ -292,13 +193,4 @@ func logTruncator(logFile string, current *os.File) {
 		current = newFile
 		old.Close()
 	}
-}
-
-func configureRecovery(s *mgr.Service) error {
-	// Restart after 5s on first/second/subsequent failures; reset failure count after 1 day.
-	return s.SetRecoveryActions([]mgr.RecoveryAction{
-		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
-	}, 86400) // reset failure count after 1 day
 }
