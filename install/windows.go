@@ -165,6 +165,8 @@ func UninstallWindows(args []string, defaultServiceName string) {
 		log.Printf("Warning: failed to remove Add/Remove Programs entry: %v", err)
 	}
 
+	unregisterAgent(*configPath)
+
 	if err := os.Remove(*configPath); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("failed to remove config file %s: %v", *configPath, err)
 	}

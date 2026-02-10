@@ -106,7 +106,7 @@ func SaveConfig(cfg *Config, path string) error {
 	return utils.WriteFileAtomic(path, configBytes, 0o600)
 }
 
-func LoadConfig(path string, version VersionInfo) (Config, error) {
+func ReadConfigFile(path string) (Config, error) {
 	var cfg Config
 
 	if path == "" {
@@ -127,6 +127,15 @@ func LoadConfig(path string, version VersionInfo) (Config, error) {
 
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		return cfg, fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+
+	return cfg, nil
+}
+
+func LoadConfig(path string, version VersionInfo) (Config, error) {
+	cfg, err := ReadConfigFile(path)
+	if err != nil {
+		return cfg, err
 	}
 
 	// // Exactly one of Bootstrap or Agent should be present
