@@ -3,3 +3,5 @@
 /dev/**/config.json
 /dev/**/.env
 /dev/**/certkit-agent.log
+/dev/**/*.vhd
+/dev/**/*.avhd

@@ -38,6 +38,14 @@ func GetCertificateSha1FromPfx(path string, password string) (string, error) {
 		return "", err
 	}
 
+	return GetCertificateSha1FromPfxBytes(data, password)
+}
+
+func GetCertificateSha1FromPfxBytes(data []byte, password string) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("empty PFX payload")
+	}
+
 	pemBlocks, err := pkcs12.ToPEM(data, password)
 	if err != nil {
 		return "", fmt.Errorf("decode pfx: %w", err)
