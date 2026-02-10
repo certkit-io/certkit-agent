@@ -1,6 +1,7 @@
 param(
     [string]$VmName = "certkit-rras",
     [string]$SourcePath = "C:\Source\CertKitOther\certkit-agent\dev\rras",
+    [string]$LocalBinaryPath = "",
     [string]$DestinationPath = "C:\dev\rras",
     [string]$Username = "Administrator",
     [Parameter(Mandatory = $true)]
@@ -11,6 +12,15 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $SourcePath)) {
     throw "Source path not found: $SourcePath"
+}
+
+if ([string]::IsNullOrWhiteSpace($LocalBinaryPath)) {
+    $repoRoot = Split-Path -Parent (Split-Path -Parent (Resolve-Path $SourcePath))
+    $LocalBinaryPath = Join-Path $repoRoot "dist\bin\certkit-agent_windows_amd64.exe"
+}
+
+if (-not (Test-Path $LocalBinaryPath)) {
+    throw "Local agent binary not found: $LocalBinaryPath"
 }
 
 $secure = ConvertTo-SecureString -String $Password -AsPlainText -Force
@@ -38,10 +48,12 @@ try {
         }
         Copy-Item -ToSession $session -Path $path -Destination $DestinationPath -Force
     }
+
+    Copy-Item -ToSession $session -Path $LocalBinaryPath -Destination $DestinationPath -Force
 } finally {
     if ($session) {
         Remove-PSSession $session
     }
 }
 
-Write-Host "Copied $SourcePath to $DestinationPath in VM '$VmName'."
+Write-Host "Copied RRAS scripts and local binary to $DestinationPath in VM '$VmName'."

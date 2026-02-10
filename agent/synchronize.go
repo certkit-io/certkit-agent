@@ -55,6 +55,9 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	if strings.EqualFold(cfg.ConfigType, "iis") {
 		return synchronizeIISCertificate(cfg, configChanged)
 	}
+	if strings.EqualFold(cfg.ConfigType, "rras") {
+		return synchronizeRRASCertificate(cfg, configChanged)
+	}
 
 	log.Printf("Beginning synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
