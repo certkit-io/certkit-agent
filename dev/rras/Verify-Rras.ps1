@@ -1,34 +1,49 @@
-param(
-    [string]$CertFriendlyName = "CertKit RRAS Dev",
-    [string]$VpnDnsName = "rras.dev.local"
-)
-
-$ErrorActionPreference = "Stop"
-
-Write-Host "Checking RRAS service..."
-Get-Service -Name RemoteAccess | Format-Table -AutoSize
-
-Write-Host ""
-Write-Host "Checking SSTP listener (TCP 443)..."
-$listener = Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue
-if ($listener) {
-    $listener | Select-Object LocalAddress, LocalPort, State | Format-Table -AutoSize
-} else {
-    Write-Host "No listener found on TCP 443."
+$service = Get-Service -Name RemoteAccess -ErrorAction SilentlyContinue
+if (-not $service -or $service.Status -ne 'Running') {
+    [pscustomobject]@{
+        ServiceRunning = $false
+        Listening443   = $false
+        Thumbprint     = ""
+        Domains        = @()
+    } | ConvertTo-Json -Depth 5
+    return
 }
 
-Write-Host ""
-Write-Host "Checking certificate in LocalMachine\\My..."
-$cert = Get-ChildItem Cert:\LocalMachine\My |
-    Where-Object { $_.FriendlyName -eq $CertFriendlyName } |
-    Select-Object -First 1
-if ($cert) {
-    $cert | Select-Object Subject, Thumbprint, NotAfter | Format-Table -AutoSize
-} else {
-    Write-Host "Certificate not found: $CertFriendlyName"
+$listener = Get-NetTCPConnection -LocalPort 443 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $listener) {
+    [pscustomobject]@{
+        ServiceRunning = $true
+        Listening443   = $false
+        Thumbprint     = ""
+        Domains        = @()
+    } | ConvertTo-Json -Depth 5
+    return
 }
 
-Write-Host ""
-Write-Host "RRAS UI check:"
-Write-Host "Open rrasmgmt.msc -> Server Properties -> Security tab."
-Write-Host "Confirm the SSL certificate binding matches $VpnDnsName."
+$thumbprint = ""
+$domains = @()
+try {
+    $remoteAccess = Get-RemoteAccess -ErrorAction Stop
+    if ($remoteAccess -and $remoteAccess.SslCertificate -and $remoteAccess.SslCertificate.Thumbprint) {
+        $thumbprint = ($remoteAccess.SslCertificate.Thumbprint -replace '\s', '')
+    }
+} catch {
+}
+
+if ($thumbprint) {
+    $cert = Get-ChildItem ("Cert:\LocalMachine\My\" + $thumbprint) -ErrorAction SilentlyContinue
+    if ($cert -and $cert.DnsNameList) {
+        $domains = @(
+            $cert.DnsNameList |
+            ForEach-Object { $_.Unicode } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        )
+    }
+}
+
+[pscustomobject]@{
+    ServiceRunning = $true
+    Listening443   = $true
+    Thumbprint     = $thumbprint
+    Domains        = $domains
+} | ConvertTo-Json -Depth 5
