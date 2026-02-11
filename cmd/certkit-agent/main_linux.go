@@ -24,7 +24,7 @@ func usageAndExit() {
 Usage:
   certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
   certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
-  certkit-agent run     [--config PATH]
+  certkit-agent run     [--config PATH] [--run-once]
 
 Examples:
   sudo ./certkit-agent install
@@ -46,7 +46,15 @@ func uninstallCmd(args []string) {
 func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	runOnce := fs.Bool("run-once", false, "run register/poll/sync once and exit")
 	fs.Parse(args)
+
+	if *runOnce {
+		if err := runAgentOnce(*configPath); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	stopCh := make(chan struct{})
 	sigCh := make(chan os.Signal, 2)

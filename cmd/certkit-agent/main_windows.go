@@ -25,7 +25,7 @@ func usageAndExit() {
 Usage:
   certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
   certkit-agent uninstall [--service-name NAME] [--config PATH]
-  certkit-agent run     [--service-name NAME] [--config PATH] [--service]
+  certkit-agent run     [--service-name NAME] [--config PATH] [--service] [--run-once]
 
 Examples (elevated PowerShell):
   .\certkit-agent.exe install
@@ -51,9 +51,21 @@ func runCmd(args []string) {
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
 	forceService := fs.Bool("service", false, "force service mode (used by SCM)")
+	runOnce := fs.Bool("run-once", false, "run register/poll/sync once and exit")
 	fs.Parse(args)
 
 	isService, err := svc.IsWindowsService()
+	if *runOnce {
+		if *forceService || (err == nil && isService) {
+			log.Fatal("--run-once cannot be used in service mode")
+		}
+		mustBeAdmin()
+		if err := runAgentOnce(*configPath); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	if *forceService || (err == nil && isService) {
 		log.Printf("Running as windows service...")
 		runWindowsService(*serviceName, *configPath)
