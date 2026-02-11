@@ -50,9 +50,7 @@ func runCmd(args []string) {
 	fs.Parse(args)
 
 	if *runOnce {
-		if err := runAgentOnce(*configPath); err != nil {
-			log.Fatal(err)
-		}
+		runAgent(*configPath, nil, true)
 		return
 	}
 
@@ -65,5 +63,5 @@ func runCmd(args []string) {
 		close(stopCh)
 	}()
 
-	runAgent(*configPath, stopCh)
+	runAgent(*configPath, stopCh, false)
 }

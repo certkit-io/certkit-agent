@@ -60,9 +60,7 @@ func runCmd(args []string) {
 			log.Fatal("--run-once cannot be used in service mode")
 		}
 		mustBeAdmin()
-		if err := runAgentOnce(*configPath); err != nil {
-			log.Fatal(err)
-		}
+		runAgent(*configPath, nil, true)
 		return
 	}
 
@@ -83,7 +81,7 @@ func runCmd(args []string) {
 		close(stopCh)
 	}()
 
-	runAgent(*configPath, stopCh)
+	runAgent(*configPath, stopCh, false)
 }
 
 func runWindowsService(serviceName, configPath string) {
@@ -106,7 +104,7 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		runAgent(s.configPath, stopCh)
+		runAgent(s.configPath, stopCh, false)
 		close(done)
 	}()
 
