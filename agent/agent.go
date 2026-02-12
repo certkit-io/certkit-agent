@@ -9,10 +9,13 @@ import (
 	"github.com/certkit-io/certkit-agent/inventory"
 )
 
-func PollAndSync() {
+func PollAndSync(forceSync bool) {
 	configChanged, err := PollForConfiguration()
 	if err != nil {
 		reportAgentError(err, "", "")
+		return
+	}
+	if !configChanged && !forceSync {
 		return
 	}
 

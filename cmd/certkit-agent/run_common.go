@@ -53,7 +53,7 @@ func runAgent(opts runOptions) {
 	}
 
 	if opts.runOnce {
-		agent.PollAndSync()
+		agent.PollAndSync(true)
 		log.Printf("certkit-agent single run complete")
 		return
 	}
@@ -65,7 +65,7 @@ func runAgent(opts runOptions) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	agent.PollAndSync()
+	agent.PollAndSync(true)
 
 	for {
 		select {
@@ -73,7 +73,7 @@ func runAgent(opts runOptions) {
 			log.Printf("received stop signal, shutting down")
 			return
 		case <-ticker.C:
-			agent.PollAndSync()
+			agent.PollAndSync(false)
 		}
 	}
 }
