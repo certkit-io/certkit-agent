@@ -4,7 +4,8 @@
 
 The Certkit Agent runs directly on your hosts and manages the full certificate lifecycle from registration through renewal and deployment. Once installed, the agent securely connects to CertKit, installs the certificates your hosts are authorized for, and keeps everything continuously up to date.
 
-See `HOW-IT-WORKS.md` for a deeper dive into architecture and security.
+See [HOW-IT-WORKS.md](HOW-IT-WORKS.md) for a deeper dive into architecture and security.
+See [CLI-REFERENCE.md](CLI-REFERENCE.md) for the full command reference.
 
 ## Prerequisites
 
@@ -64,81 +65,17 @@ Simply re-run the install snippets above to update an existing Certkit Agent ins
 
 ## Usage
 
-The agent has three commands: `install`, `uninstall`, and `run`.
+See [CLI-REFERENCE.md](CLI-REFERENCE.md) for full syntax, flags, defaults, and examples.
 
-### `certkit-agent install`
+Quick summary:
 
-Writes an initial bootstrap configuration, a systemd unit file and starts the service. Must be run as root.
-
-```
-certkit-agent install [--service-name NAME] [--unit-dir DIR] [--bin-path PATH] [--config PATH]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--service-name` | `certkit-agent` | systemd service name |
-| `--unit-dir` | `/etc/systemd/system` | systemd unit directory |
-| `--bin-path` | *(current executable)* | path to the certkit-agent binary |
-| `--config` | `/etc/certkit-agent/config.json` | path to the config file |
-
-**Examples:**
-
-```bash
-# Default install
-sudo ./certkit-agent install
-
-# Custom service name and config path
-sudo ./certkit-agent install --service-name my-agent --config /opt/certkit/config.json
-
-# Check status after install
-systemctl status certkit-agent
-```
-
-### `certkit-agent run`
-
-Starts the agent daemon. This is what the systemd service calls, you can also run it directly for debugging or on systems without systemd support.
-
-```
-certkit-agent run [--config PATH]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--config` | `/etc/certkit-agent/config.json` | path to the config file |
-
-**Examples:**
-
-```bash
-# Run with default config
-./certkit-agent run
-
-# Run with a custom config path
-./certkit-agent run --config /etc/certkit-agent/config.json
-```
-
-### `certkit-agent uninstall`
-
-Removes the agent service registration, config, and installed binary.
-
-Linux:
-```
-certkit-agent uninstall [--service-name NAME] [--unit-dir DIR] [--config PATH]
-```
-
-Windows:
-```
-certkit-agent.exe uninstall [--service-name NAME] [--config PATH]
-```
-
-Examples:
-```bash
-# Linux uninstall (service + config)
-sudo ./certkit-agent uninstall
-```
-
-```powershell
-# Windows uninstall (service + config)
-.\certkit-agent.exe uninstall
+```text
+certkit-agent install    [--service-name NAME] [--config PATH] [--key REGISTRATION_KEY]
+certkit-agent uninstall  [--service-name NAME] [--config PATH]
+certkit-agent run        [--config PATH] [--once] [--key REGISTRATION_KEY]
+certkit-agent register   REGISTRATION_KEY [--config PATH]
+certkit-agent validate   [--config PATH]
+certkit-agent version
 ```
 
 ## Configuration
@@ -265,7 +202,7 @@ pid: "service:nginx"
 sudo certkit-agent uninstall
 # If you used a custom service/unit/config path, pass the same flags used during install.
 # Example:
-sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
+sudo certkit-agent uninstall --service-name my-agent --config /opt/certkit/config.json
 ```
 
 ### Windows (PowerShell, elevated)
