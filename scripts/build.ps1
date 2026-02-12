@@ -1,5 +1,6 @@
 Param(
     [string]$Out = "dist\\bin\\certkit-agent_windows_amd64.exe",
+    [string]$LinuxOut = "dist\\bin\\certkit-agent_linux_amd64",
     [string]$Version = $env:VERSION,
     [string]$Commit = $env:COMMIT,
     [string]$BuildDate = $env:BUILD_DATE
@@ -30,23 +31,36 @@ try {
         $BuildDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     }
 
-    $outDir = Split-Path -Parent $Out
-    if (-not [string]::IsNullOrWhiteSpace($outDir)) {
-        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    $outDirs = @(
+        (Split-Path -Parent $Out),
+        (Split-Path -Parent $LinuxOut)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+
+    foreach ($dir in $outDirs) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
     }
 
     $ldflags = "-s -w -X main.version=$Version -X main.commit=$Commit -X main.date=$BuildDate"
+
+    function Build-One {
+        param(
+            [Parameter(Mandatory = $true)][string]$GoOs,
+            [Parameter(Mandatory = $true)][string]$GoArch,
+            [Parameter(Mandatory = $true)][string]$Output
+        )
+        $env:CGO_ENABLED = "0"
+        $env:GOOS = $GoOs
+        $env:GOARCH = $GoArch
+        Write-Host "Building $GoOs/$GoArch -> $Output"
+        go build -trimpath -ldflags $ldflags -o $Output .\cmd\certkit-agent
+    }
 
     $oldCgoEnabled = $env:CGO_ENABLED
     $oldGoos = $env:GOOS
     $oldGoarch = $env:GOARCH
     try {
-        $env:CGO_ENABLED = "0"
-        $env:GOOS = "windows"
-        $env:GOARCH = "amd64"
-
-        Write-Host "Building windows/amd64 -> $Out"
-        go build -trimpath -ldflags $ldflags -o $Out .\cmd\certkit-agent
+        Build-One -GoOs "windows" -GoArch "amd64" -Output $Out
+        Build-One -GoOs "linux" -GoArch "amd64" -Output $LinuxOut
     } finally {
         $env:CGO_ENABLED = $oldCgoEnabled
         $env:GOOS = $oldGoos
