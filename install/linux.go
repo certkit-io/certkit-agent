@@ -52,11 +52,15 @@ func InstallLinux(args []string, defaultServiceName string) {
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		log.Printf("Config not found, creating %s", *configPath)
-		if err := config.CreateInitialConfig(*configPath, *key); err != nil {
+		if err := config.CreateInitialConfig(*configPath, *key, *serviceName); err != nil {
 			log.Fatalf("failed to create config: %v", err)
 		}
 	} else {
 		log.Printf("Config already exists at %s", *configPath)
+	}
+
+	if err := config.SetBootstrapServiceName(*configPath, *serviceName); err != nil {
+		log.Fatalf("failed to persist service name in config: %v", err)
 	}
 
 	if _, err := exec.LookPath("systemctl"); err != nil {

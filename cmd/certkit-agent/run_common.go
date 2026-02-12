@@ -14,10 +14,11 @@ import (
 )
 
 type runOptions struct {
-	configPath string
-	stopCh     <-chan struct{}
-	runOnce    bool
-	key        string
+	configPath  string
+	stopCh      <-chan struct{}
+	runOnce     bool
+	key         string
+	serviceName string
 }
 
 func runAgent(opts runOptions) {
@@ -27,7 +28,7 @@ func runAgent(opts runOptions) {
 
 	if _, err := os.Stat(opts.configPath); os.IsNotExist(err) {
 		log.Printf("Config not found, creating %s", opts.configPath)
-		if err := config.CreateInitialConfig(opts.configPath, opts.key); err != nil {
+		if err := config.CreateInitialConfig(opts.configPath, opts.key, opts.serviceName); err != nil {
 			log.Fatal(err)
 		}
 	}

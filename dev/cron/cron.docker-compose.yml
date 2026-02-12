@@ -1,0 +1,11 @@
+services:
+  cron-agent:
+    build:
+      context: ../..
+      dockerfile: dev/cron/Dockerfile
+    hostname: "cron-box"
+    container_name: certkit-cron-dev
+    env_file:
+      - ./.env
+    tty: true
+    stdin_open: true

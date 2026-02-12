@@ -30,6 +30,7 @@ type Config struct {
 
 type BootstrapCreds struct {
 	RegistrationKey string `json:"registration_key"`
+	ServiceName     string `json:"service_name,omitempty"`
 }
 
 type AgentCreds struct {
@@ -70,7 +71,7 @@ const (
 	defaultAPIBase = "https://app.certkit.io"
 )
 
-func CreateInitialConfig(path string, registrationKey string) error {
+func CreateInitialConfig(path string, registrationKey string, serviceName string) error {
 	registrationKey = strings.TrimSpace(registrationKey)
 	if registrationKey == "" {
 		registrationKey = strings.TrimSpace(os.Getenv("REGISTRATION_KEY"))
@@ -88,6 +89,7 @@ func CreateInitialConfig(path string, registrationKey string) error {
 		ApiBase: apiBase,
 		Bootstrap: &BootstrapCreds{
 			RegistrationKey: registrationKey,
+			ServiceName:     strings.TrimSpace(serviceName),
 		},
 		Agent: nil,
 	}
@@ -97,6 +99,28 @@ func CreateInitialConfig(path string, registrationKey string) error {
 	}
 
 	return SaveConfig(cfg, path)
+}
+
+func SetBootstrapServiceName(path string, serviceName string) error {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return nil
+	}
+
+	cfg, err := ReadConfigFile(path)
+	if err != nil {
+		return err
+	}
+
+	if cfg.Bootstrap == nil {
+		cfg.Bootstrap = &BootstrapCreds{}
+	}
+	if cfg.Bootstrap.ServiceName == serviceName {
+		return nil
+	}
+
+	cfg.Bootstrap.ServiceName = serviceName
+	return SaveConfig(&cfg, path)
 }
 
 func SaveConfig(cfg *Config, path string) error {

@@ -61,10 +61,11 @@ func runCmd(args []string) {
 		}
 		mustBeAdmin()
 		runAgent(runOptions{
-			configPath: *configPath,
-			stopCh:     nil,
-			runOnce:    true,
-			key:        *key,
+			configPath:  *configPath,
+			stopCh:      nil,
+			runOnce:     true,
+			key:         *key,
+			serviceName: *serviceName,
 		})
 		return
 	}
@@ -87,10 +88,11 @@ func runCmd(args []string) {
 	}()
 
 	runAgent(runOptions{
-		configPath: *configPath,
-		stopCh:     stopCh,
-		runOnce:    false,
-		key:        *key,
+		configPath:  *configPath,
+		stopCh:      stopCh,
+		runOnce:     false,
+		key:         *key,
+		serviceName: *serviceName,
 	})
 }
 
@@ -122,13 +124,14 @@ func validateCmd(args []string) {
 }
 
 func runWindowsService(serviceName, configPath string) {
-	if err := svc.Run(serviceName, &windowsService{configPath: configPath}); err != nil {
+	if err := svc.Run(serviceName, &windowsService{configPath: configPath, serviceName: serviceName}); err != nil {
 		log.Fatalf("service failed: %v", err)
 	}
 }
 
 type windowsService struct {
-	configPath string
+	configPath  string
+	serviceName string
 }
 
 func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
@@ -142,10 +145,11 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 	done := make(chan struct{})
 	go func() {
 		runAgent(runOptions{
-			configPath: s.configPath,
-			stopCh:     stopCh,
-			runOnce:    false,
-			key:        "",
+			configPath:  s.configPath,
+			stopCh:      stopCh,
+			runOnce:     false,
+			key:         "",
+			serviceName: s.serviceName,
 		})
 		close(done)
 	}()

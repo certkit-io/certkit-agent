@@ -50,10 +50,11 @@ func runCmd(args []string) {
 
 	if *runOnce {
 		runAgent(runOptions{
-			configPath: *configPath,
-			stopCh:     nil,
-			runOnce:    true,
-			key:        *key,
+			configPath:  *configPath,
+			stopCh:      nil,
+			runOnce:     true,
+			key:         *key,
+			serviceName: defaultServiceName,
 		})
 		return
 	}
@@ -68,10 +69,11 @@ func runCmd(args []string) {
 	}()
 
 	runAgent(runOptions{
-		configPath: *configPath,
-		stopCh:     stopCh,
-		runOnce:    false,
-		key:        *key,
+		configPath:  *configPath,
+		stopCh:      stopCh,
+		runOnce:     false,
+		key:         *key,
+		serviceName: defaultServiceName,
 	})
 }
 
