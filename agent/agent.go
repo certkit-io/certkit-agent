@@ -9,31 +9,18 @@ import (
 	"github.com/certkit-io/certkit-agent/inventory"
 )
 
-var counter = 0
+func PollAndSync() {
+	configChanged, err := PollForConfiguration()
+	if err != nil {
+		reportAgentError(err, "", "")
+		return
+	}
 
-func DoWork() {
-	if NeedsRegistration() {
-		DoRegistration()
-	} else {
-		configChanged, err := PollForConfiguration()
-		if err != nil {
+	statuses := SynchronizeCertificates(configChanged)
+	if len(statuses) > 0 {
+		if err := api.UpdateConfigStatus(statuses); err != nil {
 			reportAgentError(err, "", "")
 		}
-		// Synchronize every 60 minutes
-		if counter%120 == 0 || configChanged {
-			statuses := SynchronizeCertificates(configChanged)
-			if len(statuses) > 0 {
-				if err := api.UpdateConfigStatus(statuses); err != nil {
-					reportAgentError(err, "", "")
-				}
-			}
-		}
-
-		// Send inventory updates every 8 hours.
-		if (counter+1)%960 == 0 {
-			SendInventory()
-		}
-		counter++
 	}
 }
 

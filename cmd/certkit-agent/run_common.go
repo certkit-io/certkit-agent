@@ -39,27 +39,33 @@ func runAgent(opts runOptions) {
 
 	log.Printf("API Base: %s", config.CurrentConfig.ApiBase)
 
-	if opts.runOnce {
-		if agent.NeedsRegistration() {
-			if config.CurrentConfig.Bootstrap == nil || strings.TrimSpace(config.CurrentConfig.Bootstrap.RegistrationKey) == "" {
-				log.Fatal(fmt.Errorf("agent is not registered and no registration key is configured"))
-			}
-
-			agent.DoRegistration()
-			if agent.NeedsRegistration() {
-				log.Fatal(fmt.Errorf("agent registration did not complete"))
-			}
+	registeredOnStartup := false
+	if agent.NeedsRegistration() {
+		if config.CurrentConfig.Bootstrap == nil || strings.TrimSpace(config.CurrentConfig.Bootstrap.RegistrationKey) == "" {
+			log.Fatal(fmt.Errorf("agent is not registered and no registration key is configured"))
 		}
 
-		agent.DoWork()
+		agent.DoRegistration()
+		if agent.NeedsRegistration() {
+			log.Fatal(fmt.Errorf("agent registration did not complete"))
+		}
+		registeredOnStartup = true
+	}
+
+	if opts.runOnce {
+		agent.PollAndSync()
 		log.Printf("certkit-agent single run complete")
 		return
+	}
+
+	if !opts.runOnce && !registeredOnStartup {
+		agent.SendInventory()
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	agent.DoWork()
+	agent.PollAndSync()
 
 	for {
 		select {
@@ -67,7 +73,7 @@ func runAgent(opts runOptions) {
 			log.Printf("received stop signal, shutting down")
 			return
 		case <-ticker.C:
-			agent.DoWork()
+			agent.PollAndSync()
 		}
 	}
 }
