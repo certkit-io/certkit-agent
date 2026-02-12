@@ -20,7 +20,7 @@ mkdir -p "$(dirname "$CRON_LOG_PATH")"
 touch "$CRON_LOG_PATH"
 
 echo "Registering agent..."
-"$AGENT_BIN" register --key "$KEY" --config "$CONFIG_PATH"
+"$AGENT_BIN" register "$KEY" --config "$CONFIG_PATH"
 
 echo "Validating agent configuration..."
 "$AGENT_BIN" validate --config "$CONFIG_PATH"
@@ -30,7 +30,7 @@ cat > "$CRON_FILE" <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-$CRON_SCHEDULE root for i in 1 2 3 4; do $AGENT_BIN run --run-once --config $CONFIG_PATH >> $CRON_LOG_PATH 2>&1; sleep 15; done
+$CRON_SCHEDULE root for i in 1 2 3 4; do $AGENT_BIN run --once --config $CONFIG_PATH >> $CRON_LOG_PATH 2>&1; sleep 15; done
 EOF
 
 chmod 0644 "$CRON_FILE"

@@ -19,7 +19,7 @@ import (
 func doRegister(configPath string, key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return fmt.Errorf("--key is required")
+		return fmt.Errorf("registration key is required")
 	}
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -54,6 +54,15 @@ func doRegister(configPath string, key string) error {
 }
 
 func doValidate(configPath string) error {
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Errorf(
+			"No config file found at %s.\nEither register first:\n  certkit-agent register <REGISTRATION_KEY> [--config PATH]\nOr specify a config path:\n  certkit-agent validate --config <PATH>",
+			configPath,
+		)
+	} else if err != nil {
+		return fmt.Errorf("failed to access config file %s: %w", configPath, err)
+	}
+
 	cfg, err := config.ReadConfigFile(configPath)
 	if err != nil {
 		return err
@@ -92,7 +101,7 @@ func doValidate(configPath string) error {
 	}
 
 	networkStatus, networkReachable := checkAPIReachability(apiBase)
-	serviceStatus := detectServiceStatus(serviceName)
+	serviceCheck := detectServiceStatus(serviceName)
 
 	log.Printf("Validation report:")
 	log.Printf("  api base: %s", valueOr(apiBase, "(missing)"))
@@ -103,8 +112,10 @@ func doValidate(configPath string) error {
 	log.Printf("  signing keypair generated: %t", hasKeyPair)
 	log.Printf("  signing keypair valid: %t", keyPairValid)
 	log.Printf("  registered: %t", hasAgent)
-	log.Printf("  service configured in config: %s", valueOr(serviceName, "(missing)"))
-	log.Printf("  service status: %s", serviceStatus)
+	if serviceCheck.Found {
+		log.Printf("  service name: %s", serviceCheck.Name)
+		log.Printf("  service status: %s", serviceCheck.Status)
+	}
 
 	problems := make([]string, 0, 6)
 	if apiBase == "" {
@@ -173,7 +184,13 @@ func checkAPIReachability(apiBase string) (string, bool) {
 	return fmt.Sprintf("reachable (tcp %s, http status %d)", address, resp.StatusCode), true
 }
 
-func detectServiceStatus(serviceName string) string {
+type serviceCheckResult struct {
+	Found  bool
+	Name   string
+	Status string
+}
+
+func detectServiceStatus(serviceName string) serviceCheckResult {
 	serviceName = strings.TrimSpace(serviceName)
 	if serviceName == "" {
 		serviceName = defaultServiceName
@@ -186,9 +203,9 @@ func detectServiceStatus(serviceName string) string {
 		lower := strings.ToLower(text)
 		if err != nil {
 			if strings.Contains(lower, "1060") || strings.Contains(lower, "does not exist") {
-				return fmt.Sprintf("not installed (service %s)", serviceName)
+				return serviceCheckResult{Found: false}
 			}
-			return fmt.Sprintf("unknown (query error: %v)", err)
+			return serviceCheckResult{Found: false}
 		}
 
 		state := "state unknown"
@@ -199,11 +216,15 @@ func detectServiceStatus(serviceName string) string {
 				break
 			}
 		}
-		return fmt.Sprintf("installed (%s)", state)
+		return serviceCheckResult{
+			Found:  true,
+			Name:   serviceName,
+			Status: fmt.Sprintf("installed (%s)", state),
+		}
 
 	case "linux":
 		if _, err := exec.LookPath("systemctl"); err != nil {
-			return "unknown (systemctl not found)"
+			return serviceCheckResult{Found: false}
 		}
 
 		unitName := serviceName + ".service"
@@ -212,9 +233,9 @@ func detectServiceStatus(serviceName string) string {
 		if err != nil {
 			lower := strings.ToLower(text + " " + err.Error())
 			if strings.Contains(lower, "not-found") || strings.Contains(lower, "could not be found") {
-				return fmt.Sprintf("not installed (unit %s)", unitName)
+				return serviceCheckResult{Found: false}
 			}
-			return fmt.Sprintf("unknown (systemctl error: %v)", err)
+			return serviceCheckResult{Found: false}
 		}
 
 		lines := strings.Split(text, "\n")
@@ -227,12 +248,16 @@ func detectServiceStatus(serviceName string) string {
 			activeState = strings.TrimSpace(lines[1])
 		}
 		if strings.EqualFold(loadState, "not-found") {
-			return fmt.Sprintf("not installed (unit %s)", unitName)
+			return serviceCheckResult{Found: false}
 		}
-		return fmt.Sprintf("installed (unit %s, load=%s, active=%s)", unitName, loadState, activeState)
+		return serviceCheckResult{
+			Found:  true,
+			Name:   unitName,
+			Status: fmt.Sprintf("installed (load=%s, active=%s)", loadState, activeState),
+		}
 	}
 
-	return fmt.Sprintf("unknown (service check not implemented for %s)", runtime.GOOS)
+	return serviceCheckResult{Found: false}
 }
 
 func valueOr(value, fallback string) string {

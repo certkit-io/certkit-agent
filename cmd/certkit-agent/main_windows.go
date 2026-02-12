@@ -26,8 +26,8 @@ func usageAndExit() {
 Usage:
   certkit-agent install    [--service-name NAME] [--config PATH] [--key REGISTRATION_KEY]
   certkit-agent uninstall  [--service-name NAME] [--config PATH]
-  certkit-agent run        [--config PATH] [--run-once] [--key REGISTRATION_KEY]
-  certkit-agent register   --key REGISTRATION_KEY [--config PATH]
+  certkit-agent run        [--config PATH] [--once] [--key REGISTRATION_KEY]
+  certkit-agent register   REGISTRATION_KEY [--config PATH]
   certkit-agent validate   [--config PATH]
   certkit-agent version
 `, version)
@@ -50,14 +50,14 @@ func runCmd(args []string) {
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
 	forceService := fs.Bool("service", false, "force service mode (used by SCM)")
-	runOnce := fs.Bool("run-once", false, "run register/poll/sync once and exit")
+	runOnce := fs.Bool("once", false, "run register/poll/sync once and exit")
 	key := fs.String("key", "", "registration key used when creating a new config")
 	fs.Parse(args)
 
 	isService, err := svc.IsWindowsService()
 	if *runOnce {
 		if *forceService || (err == nil && isService) {
-			log.Fatal("--run-once cannot be used in service mode")
+			log.Fatal("--once cannot be used in service mode")
 		}
 		mustBeAdmin()
 		runAgent(runOptions{
@@ -99,16 +99,24 @@ func runCmd(args []string) {
 func registerCmd(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
-	key := fs.String("key", "", "registration key")
-	fs.Parse(args)
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
+	key := strings.TrimSpace(args[0])
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
+	fs.Parse(args[1:])
+	if len(fs.Args()) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
 
 	mustBeAdmin()
 
-	if strings.TrimSpace(*key) == "" {
-		log.Fatal("--key is required")
-	}
-
-	if err := doRegister(*configPath, *key); err != nil {
+	if err := doRegister(*configPath, key); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -119,7 +127,8 @@ func validateCmd(args []string) {
 	fs.Parse(args)
 
 	if err := doValidate(*configPath); err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 

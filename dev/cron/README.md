@@ -3,7 +3,7 @@
 This stack runs a Linux container with `cron` and a prebuilt CertKit agent
 binary copied from `dist/bin`.
 
-Use this when you want to validate scheduled `run --run-once` behavior.
+Use this when you want to validate scheduled `run --once` behavior.
 
 Files
 - `cron.docker-compose.yml`: Compose definition for the cron container.
@@ -50,7 +50,7 @@ Environment variables
 - `REGISTRATION_KEY`: Used by `setup-cron.sh` if no argument is passed.
 - `CERTKIT_API_BASE`: Used when first creating config.
 - `CERTKIT_CONFIG_PATH`: Optional config path override (default `/etc/certkit-agent/config.json`).
-- `CERTKIT_CRON_SCHEDULE`: Optional cron schedule override (default `*/5 * * * *`).
+- `CERTKIT_CRON_SCHEDULE`: Optional cron schedule override (default `* * * * *`).
 - `CERTKIT_CRON_LOG`: Optional log path override (default `/var/log/certkit-agent/cron.log`).
 
 Monitor
