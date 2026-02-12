@@ -35,8 +35,6 @@ fi
 echo "Installing/updating systemd service: $SERVICE_NAME"
 "$INSTALL_BIN" install \
   --service-name "$SERVICE_NAME" \
-  --unit-dir /etc/systemd/system \
-  --bin-path "$INSTALL_BIN" \
   --config "$CONFIG_PATH"
 
 echo "certkit-agent bootstrap complete"

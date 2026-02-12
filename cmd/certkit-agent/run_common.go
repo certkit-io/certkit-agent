@@ -13,25 +13,32 @@ import (
 	"github.com/certkit-io/certkit-agent/config"
 )
 
-func runAgent(configPath string, stopCh <-chan struct{}, runOnce bool) {
+type runOptions struct {
+	configPath string
+	stopCh     <-chan struct{}
+	runOnce    bool
+	key        string
+}
+
+func runAgent(opts runOptions) {
 	log.Printf("certkit-agent starting...")
 	log.Printf("certkit-agent version: %s, commit: %s, date: %s", version, commit, date)
-	log.Printf("certkit-agent using config: %s", configPath)
+	log.Printf("certkit-agent using config: %s", opts.configPath)
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		log.Printf("Config not found, creating %s", configPath)
-		if err := config.CreateInitialConfig(configPath); err != nil {
+	if _, err := os.Stat(opts.configPath); os.IsNotExist(err) {
+		log.Printf("Config not found, creating %s", opts.configPath)
+		if err := config.CreateInitialConfig(opts.configPath, opts.key); err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	if _, err := config.LoadConfig(configPath, Version()); err != nil {
+	if _, err := config.LoadConfig(opts.configPath, Version()); err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("API Base: %s", config.CurrentConfig.ApiBase)
 
-	if runOnce {
+	if opts.runOnce {
 		if agent.NeedsRegistration() {
 			if config.CurrentConfig.Bootstrap == nil || strings.TrimSpace(config.CurrentConfig.Bootstrap.RegistrationKey) == "" {
 				log.Fatal(fmt.Errorf("agent is not registered and no registration key is configured"))
@@ -55,7 +62,7 @@ func runAgent(configPath string, stopCh <-chan struct{}, runOnce bool) {
 
 	for {
 		select {
-		case <-stopCh:
+		case <-opts.stopCh:
 			log.Printf("received stop signal, shutting down")
 			return
 		case <-ticker.C:

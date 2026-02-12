@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	agentCrypto "github.com/certkit-io/certkit-agent/crypto"
@@ -69,11 +70,13 @@ const (
 	defaultAPIBase = "https://app.certkit.io"
 )
 
-func CreateInitialConfig(path string) error {
-	registrationKey := os.Getenv("REGISTRATION_KEY")
-
+func CreateInitialConfig(path string, registrationKey string) error {
+	registrationKey = strings.TrimSpace(registrationKey)
 	if registrationKey == "" {
-		return fmt.Errorf("REGISTRATION_KEY is required for first install")
+		registrationKey = strings.TrimSpace(os.Getenv("REGISTRATION_KEY"))
+	}
+	if registrationKey == "" {
+		return fmt.Errorf("registration key is required for first install (set REGISTRATION_KEY or pass --key)")
 	}
 
 	apiBase := os.Getenv("CERTKIT_API_BASE")

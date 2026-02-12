@@ -24,31 +24,23 @@ const (
 func InstallLinux(args []string, defaultServiceName string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	serviceName := fs.String("service-name", defaultServiceName, "systemd service name")
-	unitDir := fs.String("unit-dir", DefaultLinuxUnitPath, "systemd unit directory")
-	binPath := fs.String("bin-path", "", "path to certkit-agent binary (default: current executable)")
 	configPath := fs.String("config", DefaultLinuxConfigPath, "path to config.json")
+	key := fs.String("key", "", "registration key used when creating a new config")
 	fs.Parse(args)
 
 	mustBeRoot()
 
-	exe := *binPath
-	if exe == "" {
-		var err error
-		exe, err = os.Executable()
-		if err != nil {
-			log.Fatalf("failed to determine executable path: %v", err)
-		}
-		exe, err = filepath.EvalSymlinks(exe)
-		if err != nil {
-			log.Fatalf("failed to resolve executable symlinks: %v", err)
-		}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalf("failed to determine executable path: %v", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		log.Fatalf("failed to resolve executable symlinks: %v", err)
 	}
 
 	if _, err := os.Stat(exe); err != nil {
 		log.Fatalf("binary path does not exist: %s (%v)", exe, err)
-	}
-	if !strings.HasPrefix(*unitDir, "/") {
-		log.Fatalf("--unit-dir must be an absolute path: %s", *unitDir)
 	}
 	if !strings.HasPrefix(*configPath, "/") {
 		log.Fatalf("--config must be an absolute path: %s", *configPath)
@@ -60,7 +52,7 @@ func InstallLinux(args []string, defaultServiceName string) {
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		log.Printf("Config not found, creating %s", *configPath)
-		if err := config.CreateInitialConfig(*configPath); err != nil {
+		if err := config.CreateInitialConfig(*configPath, *key); err != nil {
 			log.Fatalf("failed to create config: %v", err)
 		}
 	} else {
@@ -72,7 +64,7 @@ func InstallLinux(args []string, defaultServiceName string) {
 		return
 	}
 
-	unitPath := filepath.Join(*unitDir, *serviceName+".service")
+	unitPath := filepath.Join(DefaultLinuxUnitPath, *serviceName+".service")
 	unitContent := renderSystemdUnit(exe, *configPath)
 
 	if err := utils.WriteFileAtomic(unitPath, []byte(unitContent), 0o644); err != nil {
@@ -94,22 +86,18 @@ func InstallLinux(args []string, defaultServiceName string) {
 func UninstallLinux(args []string, defaultServiceName string) {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
 	serviceName := fs.String("service-name", defaultServiceName, "systemd service name")
-	unitDir := fs.String("unit-dir", DefaultLinuxUnitPath, "systemd unit directory")
 	configPath := fs.String("config", DefaultLinuxConfigPath, "path to config.json")
 	fs.Parse(args)
 	configPathExplicit := isFlagExplicitlySet(fs, "config")
 
 	mustBeRoot()
 
-	if !strings.HasPrefix(*unitDir, "/") {
-		log.Fatalf("--unit-dir must be an absolute path: %s", *unitDir)
-	}
 	if !strings.HasPrefix(*configPath, "/") {
 		log.Fatalf("--config must be an absolute path: %s", *configPath)
 	}
 
 	unitName := *serviceName + ".service"
-	unitPath := filepath.Join(*unitDir, unitName)
+	unitPath := filepath.Join(DefaultLinuxUnitPath, unitName)
 	unitExists := false
 	binaryPath := ""
 	if _, err := os.Stat(unitPath); err == nil {
