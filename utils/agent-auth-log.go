@@ -24,3 +24,9 @@ func MarkAgentAuthorized() {
 	wasUnauthorized = false
 	log.Printf("Agent is now authorized; beginning to poll for configuration changes.")
 }
+
+func IsAgentUnauthorized() bool {
+	authStateMu.Lock()
+	defer authStateMu.Unlock()
+	return wasUnauthorized
+}

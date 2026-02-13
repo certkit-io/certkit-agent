@@ -7,12 +7,16 @@ import (
 	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/inventory"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 func PollAndSync(forceSync bool) {
 	configChanged, err := PollForConfiguration()
 	if err != nil {
 		reportAgentError(err, "", "")
+		return
+	}
+	if utils.IsAgentUnauthorized() {
 		return
 	}
 	if !configChanged && !forceSync {
