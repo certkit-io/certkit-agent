@@ -13,11 +13,12 @@ import (
 )
 
 func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	log.Printf("Beginning RRAS synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
 	}
+	importedPfx := false
+	appliedRrasSsl := false
 
 	retryFull := cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
@@ -64,6 +65,7 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 			status.Message = fmt.Sprintf("Error importing PFX: %v", err)
 			return status
 		}
+		importedPfx = true
 	}
 
 	if needsFetch || retryFull {
@@ -74,9 +76,15 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 			status.Message = fmt.Sprintf("Error applying RRAS SSL certificate: %v", err)
 			return status
 		}
+		appliedRrasSsl = true
 	}
 
-	log.Printf("RRAS synchronization complete for %s", cfg.Id)
+	if importedPfx || appliedRrasSsl {
+		log.Printf("RRAS synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", cfg.Id, importedPfx, appliedRrasSsl)
+	} else {
+		log.Printf("RRAS configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id)
+	}
+
 	status.Status = statusSynced
 	return status
 }
