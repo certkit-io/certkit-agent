@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	agentCrypto "github.com/certkit-io/certkit-agent/crypto"
@@ -29,6 +30,7 @@ type Config struct {
 
 type BootstrapCreds struct {
 	RegistrationKey string `json:"registration_key"`
+	ServiceName     string `json:"service_name,omitempty"`
 }
 
 type AgentCreds struct {
@@ -69,11 +71,13 @@ const (
 	defaultAPIBase = "https://app.certkit.io"
 )
 
-func CreateInitialConfig(path string) error {
-	registrationKey := os.Getenv("REGISTRATION_KEY")
-
+func CreateInitialConfig(path string, registrationKey string, serviceName string) error {
+	registrationKey = strings.TrimSpace(registrationKey)
 	if registrationKey == "" {
-		return fmt.Errorf("REGISTRATION_KEY is required for first install")
+		registrationKey = strings.TrimSpace(os.Getenv("REGISTRATION_KEY"))
+	}
+	if registrationKey == "" {
+		return fmt.Errorf("registration key is required for first install (set REGISTRATION_KEY or pass --key)")
 	}
 
 	apiBase := os.Getenv("CERTKIT_API_BASE")
@@ -85,6 +89,7 @@ func CreateInitialConfig(path string) error {
 		ApiBase: apiBase,
 		Bootstrap: &BootstrapCreds{
 			RegistrationKey: registrationKey,
+			ServiceName:     strings.TrimSpace(serviceName),
 		},
 		Agent: nil,
 	}
@@ -94,6 +99,28 @@ func CreateInitialConfig(path string) error {
 	}
 
 	return SaveConfig(cfg, path)
+}
+
+func SetBootstrapServiceName(path string, serviceName string) error {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return nil
+	}
+
+	cfg, err := ReadConfigFile(path)
+	if err != nil {
+		return err
+	}
+
+	if cfg.Bootstrap == nil {
+		cfg.Bootstrap = &BootstrapCreds{}
+	}
+	if cfg.Bootstrap.ServiceName == serviceName {
+		return nil
+	}
+
+	cfg.Bootstrap.ServiceName = serviceName
+	return SaveConfig(&cfg, path)
 }
 
 func SaveConfig(cfg *Config, path string) error {

@@ -2,9 +2,12 @@
 //
 // Minimal CLI with:
 //
-//	certkit-agent install   -> writes a systemd unit file and enables/starts it
-//	certkit-agent uninstall -> removes service registration
-//	certkit-agent run       -> stubbed daemon loop (logs for now)
+//	certkit-agent install
+//	certkit-agent uninstall
+//	certkit-agent run
+//	certkit-agent register
+//	certkit-agent validate
+//	certkit-agent version
 //
 // Build:
 //
@@ -58,6 +61,12 @@ func main() {
 		uninstallCmd(os.Args[2:])
 	case "run":
 		runCmd(os.Args[2:])
+	case "register":
+		registerCmd(os.Args[2:])
+	case "validate":
+		validateCmd(os.Args[2:])
+	case "version":
+		versionCmd()
 	default:
 		usageAndExit()
 	}

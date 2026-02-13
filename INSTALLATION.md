@@ -1,6 +1,7 @@
 ﻿# Installation Guide
 
 This document expands on the install notes in the README and focuses on practical, repeatable setups for Linux, Windows, and Docker sidecar deployments.
+For command syntax and flags, see [CLI-REFERENCE.md](CLI-REFERENCE.md).
 
 ## Table of Contents
 - [Linux](#linux)
@@ -53,7 +54,7 @@ sudo certkit-agent uninstall
 If you installed with custom values, pass the same options used at install time:
 
 ```bash
-sudo certkit-agent uninstall --service-name my-agent --unit-dir /etc/systemd/system --config /opt/certkit/config.json
+sudo certkit-agent uninstall --service-name my-agent --config /opt/certkit/config.json
 ```
 
 ### Docker Sidecar

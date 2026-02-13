@@ -28,28 +28,24 @@ const (
 func InstallWindows(args []string, defaultServiceName string) {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
-	binPath := fs.String("bin-path", "", "path to certkit-agent binary (default: current executable)")
 	configPath := fs.String("config", DefaultWindowsConfigPath, "path to config.json")
+	key := fs.String("key", "", "registration key used when creating a new config")
 	fs.Parse(args)
 
-	exe := *binPath
-	if exe == "" {
-		var err error
-		exe, err = os.Executable()
-		if err != nil {
-			log.Fatalf("failed to determine executable path: %v", err)
-		}
-		exe, err = filepath.EvalSymlinks(exe)
-		if err != nil {
-			log.Fatalf("failed to resolve executable symlinks: %v", err)
-		}
+	exe, err := os.Executable()
+	if err != nil {
+		log.Fatalf("failed to determine executable path: %v", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		log.Fatalf("failed to resolve executable symlinks: %v", err)
 	}
 
 	if _, err := os.Stat(exe); err != nil {
 		log.Fatalf("binary path does not exist: %s (%v)", exe, err)
 	}
 	if !filepath.IsAbs(exe) {
-		log.Fatalf("--bin-path must be an absolute path: %s", exe)
+		log.Fatalf("executable path must be absolute: %s", exe)
 	}
 	if !filepath.IsAbs(*configPath) {
 		log.Fatalf("--config must be an absolute path: %s", *configPath)
@@ -61,11 +57,15 @@ func InstallWindows(args []string, defaultServiceName string) {
 
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
 		log.Printf("Config not found, creating %s", *configPath)
-		if err := config.CreateInitialConfig(*configPath); err != nil {
+		if err := config.CreateInitialConfig(*configPath, *key, *serviceName); err != nil {
 			log.Fatalf("failed to create config: %v", err)
 		}
 	} else {
 		log.Printf("Config already exists at %s", *configPath)
+	}
+
+	if err := config.SetBootstrapServiceName(*configPath, *serviceName); err != nil {
+		log.Fatalf("failed to persist service name in config: %v", err)
 	}
 
 	manager, err := mgr.Connect()
@@ -87,6 +87,8 @@ func InstallWindows(args []string, defaultServiceName string) {
 			},
 			"run",
 			"--service",
+			"--service-name",
+			*serviceName,
 			"--config",
 			*configPath,
 		)
@@ -96,7 +98,7 @@ func InstallWindows(args []string, defaultServiceName string) {
 		defer svcObj.Close()
 	} else {
 		defer svcObj.Close()
-		binLine := fmt.Sprintf(`"%s" run --service --config "%s"`, exe, *configPath)
+		binLine := fmt.Sprintf(`"%s" run --service --service-name "%s" --config "%s"`, exe, *serviceName, *configPath)
 		current, err := svcObj.Config()
 		if err != nil {
 			log.Fatalf("failed to read service config %s: %v", *serviceName, err)

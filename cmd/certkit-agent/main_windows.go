@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	agentinstall "github.com/certkit-io/certkit-agent/install"
@@ -23,16 +24,13 @@ func usageAndExit() {
 	fmt.Fprintf(os.Stderr, `Certkit Agent %s
 
 Usage:
-  certkit-agent install [--service-name NAME] [--bin-path PATH] [--config PATH]
-  certkit-agent uninstall [--service-name NAME] [--config PATH]
-  certkit-agent run     [--service-name NAME] [--config PATH] [--service]
-
-Examples (elevated PowerShell):
-  .\certkit-agent.exe install
-  .\certkit-agent.exe uninstall
-  Get-Service certkit-agent
-  .\certkit-agent.exe run --config "%s"
-`, version, defaultConfigPath)
+  certkit-agent install    [--service-name NAME] [--config PATH] [--key REGISTRATION_KEY]
+  certkit-agent uninstall  [--service-name NAME] [--config PATH]
+  certkit-agent run        [--config PATH] [--once] [--key REGISTRATION_KEY]
+  certkit-agent register   REGISTRATION_KEY [--config PATH]
+  certkit-agent validate   [--config PATH]
+  certkit-agent version
+`, version)
 	os.Exit(2)
 }
 
@@ -48,12 +46,30 @@ func uninstallCmd(args []string) {
 
 func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	// Hidden internal option used by SCM service invocations.
 	serviceName := fs.String("service-name", defaultServiceName, "windows service name")
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
 	forceService := fs.Bool("service", false, "force service mode (used by SCM)")
+	runOnce := fs.Bool("once", false, "run register/poll/sync once and exit")
+	key := fs.String("key", "", "registration key used when creating a new config")
 	fs.Parse(args)
 
 	isService, err := svc.IsWindowsService()
+	if *runOnce {
+		if *forceService || (err == nil && isService) {
+			log.Fatal("--once cannot be used in service mode")
+		}
+		mustBeAdmin()
+		runAgent(runOptions{
+			configPath:  *configPath,
+			stopCh:      nil,
+			runOnce:     true,
+			key:         *key,
+			serviceName: *serviceName,
+		})
+		return
+	}
+
 	if *forceService || (err == nil && isService) {
 		log.Printf("Running as windows service...")
 		runWindowsService(*serviceName, *configPath)
@@ -71,17 +87,60 @@ func runCmd(args []string) {
 		close(stopCh)
 	}()
 
-	runAgent(*configPath, stopCh)
+	runAgent(runOptions{
+		configPath:  *configPath,
+		stopCh:      stopCh,
+		runOnce:     false,
+		key:         *key,
+		serviceName: *serviceName,
+	})
+}
+
+func registerCmd(args []string) {
+	fs := flag.NewFlagSet("register", flag.ExitOnError)
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
+	key := strings.TrimSpace(args[0])
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
+	fs.Parse(args[1:])
+	if len(fs.Args()) > 0 {
+		fmt.Fprintln(os.Stderr, "Usage: certkit-agent register REGISTRATION_KEY [--config PATH]")
+		os.Exit(1)
+	}
+
+	mustBeAdmin()
+
+	if err := doRegister(*configPath, key); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func validateCmd(args []string) {
+	fs := flag.NewFlagSet("validate", flag.ExitOnError)
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	fs.Parse(args)
+
+	if err := doValidate(*configPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
 
 func runWindowsService(serviceName, configPath string) {
-	if err := svc.Run(serviceName, &windowsService{configPath: configPath}); err != nil {
+	if err := svc.Run(serviceName, &windowsService{configPath: configPath, serviceName: serviceName}); err != nil {
 		log.Fatalf("service failed: %v", err)
 	}
 }
 
 type windowsService struct {
-	configPath string
+	configPath  string
+	serviceName string
 }
 
 func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
@@ -94,7 +153,13 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		runAgent(s.configPath, stopCh)
+		runAgent(runOptions{
+			configPath:  s.configPath,
+			stopCh:      stopCh,
+			runOnce:     false,
+			key:         "",
+			serviceName: s.serviceName,
+		})
 		close(done)
 	}()
 

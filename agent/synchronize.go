@@ -28,7 +28,6 @@ const (
 )
 
 func SynchronizeCertificates(configChanged bool) []api.AgentConfigStatusUpdate {
-	log.Print("Synchronizing certificates...")
 	statuses := make([]api.AgentConfigStatusUpdate, 0, len(config.CurrentConfig.CertificateConfigurations))
 	configDirty := false
 
@@ -59,7 +58,6 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return synchronizeRRASCertificate(cfg, configChanged)
 	}
 
-	log.Printf("Beginning synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
@@ -133,8 +131,6 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 				return status
 			}
 		}
-	} else {
-		log.Printf("Certificate is up to date for config %s", cfg.Id)
 	}
 
 	if needsFetch || configChanged || retryUpdateOnly || retryFull {
@@ -163,9 +159,10 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 				status.Message = fmt.Sprintf("Update command output: \n%s", commandOutput)
 			}
 		}
+	} else {
+		log.Printf("Synchronization checks complete.  No action taken, everything up to date (config=%s).", cfg.Id)
 	}
 
-	log.Printf("Synchronization complete for %s", cfg.Id)
 	status.Status = statusSynced
 	return status
 }
@@ -468,6 +465,15 @@ func applyFileOwnershipAndPermissions(cfg config.CertificateConfiguration, path 
 	if err := os.Chmod(path, mode); err != nil {
 		return fmt.Errorf("chmod %s: %w", path, err)
 	}
+
+	log.Printf(
+		"Applied ownership/permissions to %s (config=%s owner=%s group=%s mode=%s)",
+		path,
+		cfg.Id,
+		ownerUser,
+		ownerGroup,
+		permValue,
+	)
 
 	return nil
 }

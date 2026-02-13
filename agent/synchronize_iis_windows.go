@@ -14,11 +14,12 @@ import (
 )
 
 func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	log.Printf("Beginning IIS synchronization for %s", cfg.Id)
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
 	}
+	importedPfx := false
+	updatedBinding := false
 
 	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd
 	retryFull := cfg.LastStatus == statusPendingSync ||
@@ -68,6 +69,7 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 			status.Message = fmt.Sprintf("Error importing PFX: %v", err)
 			return status
 		}
+		importedPfx = true
 
 		if thumbprint != "" {
 			if exists, err := certInStore(thumbprint); err == nil && !exists {
@@ -82,9 +84,15 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 			status.Message = fmt.Sprintf("Error applying IIS binding: %v", err)
 			return status
 		}
+		updatedBinding = true
 	}
 
-	log.Printf("IIS synchronization complete for %s", cfg.Id)
+	if importedPfx || updatedBinding {
+		log.Printf("IIS synchronization complete for (config=%s). (imported_pfx=%t, updated_binding=%t)", cfg.Id, importedPfx, updatedBinding)
+	} else {
+		log.Printf("IIS configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id)
+	}
+
 	status.Status = statusSynced
 	return status
 }
