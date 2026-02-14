@@ -1,285 +1,245 @@
-﻿# Installation Guide
+# Installation Guide
 
-This document expands on the install notes in the README and focuses on practical, repeatable setups for Linux, Windows, and Docker sidecar deployments.
-For command syntax and flags, see [CLI-REFERENCE.md](CLI-REFERENCE.md).
+This document describes supported installation and deployment patterns for `certkit-agent` on Linux, Windows, and Docker.
+
+For full command syntax and flags, see [CLI-REFERENCE.md](CLI-REFERENCE.md).
 
 ## Table of Contents
 - [Linux](#linux)
-  - [Systemd Service (Recommended)](#systemd-service-recommended)
-  - [Linux Uninstall](#linux-uninstall)
-  - [Docker Sidecar](#docker-sidecar)
-    - [Mode 1: Socket exec (default)](#mode-1-socket-exec-default)
-    - [Mode 2: Watch + reload](#mode-2-watch--reload)
-    - [Mode 3: PID namespace](#mode-3-pid-namespace)
+  - [Systemd Install (Recommended)](#systemd-install-recommended)
+  - [CLI Install Patterns](#cli-install-patterns)
+  - [Verification](#verification)
+  - [Uninstall](#uninstall)
 - [Windows](#windows)
-  - [Windows Service Install](#windows-service-install)
-  - [Windows Uninstall](#windows-uninstall)
-  - [Logs](#logs)
-  - [IIS vs PEM/Key Workflows](#iis-vs-pemkey-workflows)
-  - [Apache on Windows](#apache-on-windows)
-- [Need Help or Want Support for More Software?](#need-help-or-want-support-for-more-software)
+  - [Service Install (Recommended)](#service-install-recommended)
+  - [CLI Install Patterns](#cli-install-patterns-1)
+  - [Verification](#verification-1)
+  - [Uninstall](#uninstall-1)
+- [Docker Sidecar](#docker-sidecar)
+  - [Mode 1: Socket Exec](#mode-1-socket-exec)
+  - [Mode 2: Watch and Reload](#mode-2-watch-and-reload)
+  - [Mode 3: PID Namespace](#mode-3-pid-namespace)
+- [Support](#support)
 
 ## Linux
 
-### Systemd Service (Recommended)
+### Systemd Install (Recommended)
 
-The Linux installer downloads the latest release, verifies the checksum, installs the binary, writes a systemd unit, and starts the service.
+Use the hosted installer to download the latest release, verify checksum, install the binary, create/update the systemd service, and start it.
 
 ```bash
 sudo env REGISTRATION_KEY="your.registration_key_here" \
 bash -c 'curl -fsSL https://app.certkit.io/agent/latest/install.sh | bash'
 ```
 
-Service management:
+Default paths and service name:
+- Service: `certkit-agent`
+- Config: `/etc/certkit-agent/config.json`
+
+### CLI Install Patterns
+
+Use these patterns when you manage the binary yourself.
+
+Install with defaults:
+
+```bash
+sudo certkit-agent install --key YOUR_REGISTRATION_KEY
+```
+
+Install with custom service name and config path:
+
+```bash
+sudo certkit-agent install \
+  --service-name edge-agent \
+  --config /opt/certkit/edge-agent/config.json \
+  --key YOUR_REGISTRATION_KEY
+```
+
+Install first, register later:
+
+```bash
+sudo certkit-agent install --service-name edge-agent --config /opt/certkit/edge-agent/config.json
+sudo certkit-agent register YOUR_REGISTRATION_KEY --config /opt/certkit/edge-agent/config.json
+```
+
+Register first, install second:
+
+```bash
+sudo certkit-agent register YOUR_REGISTRATION_KEY --config /opt/certkit/edge-agent/config.json
+sudo certkit-agent install --service-name edge-agent --config /opt/certkit/edge-agent/config.json
+```
+
+Run directly without systemd:
+
+```bash
+certkit-agent run --config /etc/certkit-agent/config.json
+```
+
+### Verification
 
 ```bash
 systemctl status certkit-agent
 journalctl -u certkit-agent -f
+certkit-agent validate --config /etc/certkit-agent/config.json
 ```
 
-If you don't use systemd, you can still run the agent directly:
+### Uninstall
 
-```bash
-./certkit-agent run --config /etc/certkit-agent/config.json
-```
-
-### Linux Uninstall
-
-Uninstall removes the systemd unit, config file, and installed binary:
+Remove service registration, agent files, and config for the target install:
 
 ```bash
 sudo certkit-agent uninstall
 ```
 
-If you installed with custom values, pass the same options used at install time:
+If installed with non-default values, pass matching flags:
 
 ```bash
-sudo certkit-agent uninstall --service-name my-agent --config /opt/certkit/config.json
+sudo certkit-agent uninstall --service-name edge-agent --config /opt/certkit/edge-agent/config.json
 ```
 
-### Docker Sidecar
-
-The agent can run as a sidecar container, writing certificates into a shared volume that your web server container consumes.
-
-Common setup:
-- Shared volume mounted at `/certs` in both containers.
-- CertKit destinations: `/certs/<name>.crt` and `/certs/<name>.key`.
-- Reload mechanism depends on the mode (see below).
-
-At a high level, the agent writes new files into `/certs`, and your web server
-reloads them without rebuilding the container or restarting your service.
-
-Choosing a reload mode:
-- **Socket exec:** simplest and most reliable, but requires Docker socket access.
-- **Watch + reload:** avoids the Docker socket and is safest, but needs a watcher.
-- **PID namespace:** avoids the socket and is lightweight, but reduces isolation.
-
-Below are complete, minimal compose examples you can adapt to your existing stack.
-They assume a shared `certs` volume and an nginx container named `web`.
-
-#### Mode 1: Socket exec (default)
-
-**How it works:** the agent calls `docker exec` to reload the web server container.
-
-**Security tradeoff:** mounting `/var/run/docker.sock` gives the agent root-level
-control of the Docker host. Use in trusted environments only.
-
-**Operational tradeoff:** very simple and reliable, no custom scripts in the web
-server container.
-
-**Setup essentials:**
-- Mount the Docker socket into the agent container.
-- Use an update command that runs `docker exec`.
-
-**Compose example:**
-
-```yaml
-services:
-  web:
-    image: nginx:alpine
-    container_name: web
-    volumes:
-      - ./certs:/certs
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    ports:
-      - "8443:443"
-
-  certkit-agent:
-    image: ghcr.io/certkit-io/certkit-agent:latest
-    environment:
-      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-    volumes:
-      - ./config:/etc/certkit-agent
-      - ./certs:/certs
-      - /var/run/docker.sock:/var/run/docker.sock
-```
-
-**CertKit update command:**
-
-```
-docker exec web nginx -s reload
-```
-
-#### Mode 2: Watch + reload
-
-**How it works:** the web server container watches the shared cert directory and reloads itself.
-
-**Security tradeoff:** safest option because the agent doesn't need the Docker
-socket and can't control other containers.
-
-**Operational tradeoff:** requires a file watcher and a custom entrypoint. If
-the watcher dies, reloads stop until the container restarts.
-
-**Setup essentials:**
-- Enable a file watcher in the web server container.
-- No update command needed.
-
-**Compose example:**
-
-```yaml
-services:
-  web:
-    image: nginx:alpine
-    container_name: web
-    environment:
-      WATCH_CERTS: "1"
-    entrypoint: ["/bin/sh", "/usr/local/bin/nginx-start.sh"]
-    volumes:
-      - ./certs:/certs
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx-start.sh:/usr/local/bin/nginx-start.sh:ro
-    ports:
-      - "8443:443"
-
-  certkit-agent:
-    image: ghcr.io/certkit-io/certkit-agent:latest
-    environment:
-      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-    volumes:
-      - ./config:/etc/certkit-agent
-      - ./certs:/certs
-```
-
-**/nginx-start.sh:**
-
-```bash
-#!/usr/bin/env sh
-set -euo pipefail
-
-# Start watcher in background
-while inotifywait -e close_write,create,delete,move /certs >/dev/null 2>&1; do
-  nginx -s reload || true
-done &
-
-# Run nginx in foreground
-exec nginx -g 'daemon off;'
-
-```
-
-**CertKit update command:** *(leave empty / no-op)*
-
-#### Mode 3: PID namespace
-
-**How it works:** the agent shares the web server's PID namespace and sends it a HUP.
-
-**Security tradeoff:** more isolated than Docker socket, but less isolated than
-separate PID namespaces (the agent can see and signal the web server process).
-
-**Operational tradeoff:** no extra tooling, but you must ensure PID 1 in the web
-container handles `HUP` correctly.
-
-**Setup essentials:**
-- Share PID namespace with the web server container.
-- Use a simple signal command.
-
-**Compose example:**
-
-```yaml
-services:
-  web:
-    image: nginx:alpine
-    container_name: web
-    volumes:
-      - ./certs:/certs
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    ports:
-      - "8443:443"
-
-  certkit-agent:
-    image: ghcr.io/certkit-io/certkit-agent:latest
-    pid: "service:web"
-    environment:
-      REGISTRATION_KEY: YOUR_REGISTRATION_KEY
-    volumes:
-      - ./config:/etc/certkit-agent
-      - ./certs:/certs
-```
-
-**CertKit update command:**
-
-```
-kill -HUP 1
-```
 
 ## Windows
 
-### Windows Service Install
+### Service Install (Recommended)
 
-Run from an elevated PowerShell prompt. The installer downloads the latest release, verifies it, installs the service, and starts the agent:
+Run from an elevated PowerShell session.
 
 ```powershell
 $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
-The installer also writes an Add/Remove Programs entry ("CertKit Agent") that
-points to a local uninstall script at:
+Default paths and service name:
+- Service: `certkit-agent`
+- Binary: `C:\Program Files\CertKit\bin\certkit-agent.exe`
+- Config: `C:\ProgramData\CertKit\certkit-agent\config.json`
+- Log file: `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
 
+The installer also registers an Add/Remove Programs entry (`CertKit Agent`).
+
+### CLI Install Patterns
+
+Use these patterns when managing install/update directly.
+
+Install with defaults:
+
+```powershell
+certkit-agent.exe install --key YOUR_REGISTRATION_KEY
 ```
-C:\Program Files\CertKit\bin\uninstall.ps1
+
+Install with custom service name and config path:
+
+```powershell
+certkit-agent.exe install --service-name edge-agent --config "C:\ProgramData\CertKit\edge-agent\config.json" --key YOUR_REGISTRATION_KEY
 ```
 
-### Windows Uninstall
+Install first, register later:
 
-ARP uninstall removes the service, config, `C:\ProgramData\CertKit`, and `C:\Program Files\CertKit`.
+```powershell
+certkit-agent.exe install --service-name edge-agent --config "C:\ProgramData\CertKit\edge-agent\config.json"
+certkit-agent.exe register YOUR_REGISTRATION_KEY --config "C:\ProgramData\CertKit\edge-agent\config.json"
+```
 
-Preferred:
-- Open **Settings -> Apps -> Installed apps**.
-- Select **CertKit Agent** and click **Uninstall**.
+Register first, install second:
 
-PowerShell using the same ARP uninstall mechanism:
+```powershell
+certkit-agent.exe register YOUR_REGISTRATION_KEY --config "C:\ProgramData\CertKit\edge-agent\config.json"
+certkit-agent.exe install --service-name edge-agent --config "C:\ProgramData\CertKit\edge-agent\config.json"
+```
+
+### Verification
+
+```powershell
+Get-Service certkit-agent
+Get-Content "C:\ProgramData\CertKit\certkit-agent\certkit-agent.log" -Tail 200
+certkit-agent.exe validate --config "C:\ProgramData\CertKit\certkit-agent\config.json"
+```
+
+### Uninstall
+
+Preferred: use Add/Remove Programs (`Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall`).
+
+PowerShell via ARP uninstall string:
 
 ```powershell
 $app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
 ```
 
-CLI fallback (elevated PowerShell):
+CLI fallback:
 
 ```powershell
 & "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall
-# CLI fallback removes service + config + C:\ProgramData\CertKit.
 ```
 
-### Logs
+## Docker Sidecar
 
-The Windows service writes logs to:
+Use the public image:
+- `ghcr.io/certkit-io/certkit-agent:latest`
 
+Sidecar assumptions:
+- Agent and web server share a cert volume (for example `/certs`).
+- Cert destinations point into that shared volume.
+- Reload behavior depends on selected mode.
+
+Reference implementation:
+- `dev/docker-sidecar`
+
+### Mode 1: Socket Exec
+
+Mechanism:
+- Agent uses Docker socket and runs `docker exec <web> <reload-command>`.
+
+Requirements:
+- Mount `/var/run/docker.sock` into the agent container.
+
+Security profile:
+- Highest operational access (socket grants broad Docker host control).
+
+Operational profile:
+- Simplest integration; no custom watcher required.
+
+Example update command:
+
+```text
+docker exec web nginx -s reload
 ```
-C:\ProgramData\CertKit\certkit-agent\certkit-agent.log
+
+### Mode 2: Watch and Reload
+
+Mechanism:
+- Web container watches cert files and reloads itself on change.
+
+Requirements:
+- File watcher in web container.
+- Agent update command can be empty.
+
+Security profile:
+- No Docker socket required.
+
+Operational profile:
+- Requires maintaining watcher logic in web image/entrypoint.
+
+### Mode 3: PID Namespace
+
+Mechanism:
+- Agent shares PID namespace with web container and sends a signal.
+
+Requirements:
+- Configure shared PID namespace in compose.
+
+Security profile:
+- More isolated than Docker socket; less isolated than separate PID namespaces.
+
+Operational profile:
+- Lightweight; requires web PID 1 to handle `HUP` correctly.
+
+Example update command:
+
+```text
+kill -HUP 1
 ```
 
-### IIS vs PEM/Key Workflows
+## Support
 
-- **IIS** uses the Windows certificate store and IIS bindings. For IIS configurations, the agent fetches a PFX and installs it into LocalMachine\My, then applies it to the IIS binding.
-- **Traditional servers** (nginx/apache/haproxy) use PEM and key files on disk; the agent writes those files and runs your update command.
-
-### Apache on Windows
-
-Apache on Windows is supported for inventory discovery and PEM/key workflows. See `dev/apache-windows` for a working container example.
-
-## Need Help or Want Support for More Software?
-
-If you want support for additional software, or you run into issues, please open an issue or submit a PR. We're customer-driven and happy to help.
-
-
+For additional software support or deployment issues, open an issue or submit a PR.
