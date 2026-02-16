@@ -487,6 +487,13 @@ func parseFileMode(value string) (os.FileMode, error) {
 }
 
 func resolveUserId(name string) (int, error) {
+	if numericID, err := strconv.Atoi(strings.TrimSpace(name)); err == nil {
+		if numericID < 0 {
+			return 0, fmt.Errorf("user id must be non-negative: %d", numericID)
+		}
+		return numericID, nil
+	}
+
 	u, err := user.Lookup(name)
 	if err != nil {
 		return 0, fmt.Errorf("lookup user %q: %w", name, err)
@@ -499,6 +506,13 @@ func resolveUserId(name string) (int, error) {
 }
 
 func resolveGroupId(name string) (int, error) {
+	if numericID, err := strconv.Atoi(strings.TrimSpace(name)); err == nil {
+		if numericID < 0 {
+			return 0, fmt.Errorf("group id must be non-negative: %d", numericID)
+		}
+		return numericID, nil
+	}
+
 	g, err := user.LookupGroup(name)
 	if err != nil {
 		return 0, fmt.Errorf("lookup group %q: %w", name, err)
