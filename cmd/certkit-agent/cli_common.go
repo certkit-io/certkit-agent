@@ -143,6 +143,32 @@ func doValidate(configPath string) error {
 	return nil
 }
 
+func doLock(configPath string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is required")
+	}
+
+	if err := config.CreateLockFile(configPath); err != nil {
+		return err
+	}
+
+	log.Printf("Created lock file %s", config.LockFilePath(configPath))
+	return nil
+}
+
+func doUnlock(configPath string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is required")
+	}
+
+	if err := config.RemoveLockFile(configPath); err != nil {
+		return err
+	}
+
+	log.Printf("Removed lock file %s", config.LockFilePath(configPath))
+	return nil
+}
+
 func checkAPIReachability(apiBase string) (string, bool) {
 	apiBase = strings.TrimSpace(apiBase)
 	if apiBase == "" {

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
@@ -65,16 +66,81 @@ func PollForConfiguration() (configChanged bool, err error) {
 		return false, err
 	}
 
+	isLocked, err := config.IsLocked(config.CurrentPath)
+	if err != nil {
+		return false, err
+	}
+
 	if response == nil {
 		return false, nil
 	}
 
-	config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
+	if response.LockRequested {
+		if err := config.CreateLockFile(config.CurrentPath); err != nil {
+			return false, err
+		}
+		log.Printf("Lock requested. Agent now locked. Lock file created at %s", config.LockFilePath(config.CurrentPath))
+		isLocked = true
+	}
+
+	if isLocked {
+		changed := applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
+		if !changed {
+			return false, nil
+		}
+	} else {
+		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
+	}
+
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
 		return false, err
 	}
 
 	return true, nil
+}
+
+func applyLockedConfigUpdates(updated []config.CertificateConfiguration) bool {
+	if len(updated) == 0 || len(config.CurrentConfig.CertificateConfigurations) == 0 {
+		return false
+	}
+
+	changed := false
+	byID := make(map[string]config.CertificateConfiguration, len(updated))
+	for _, cfg := range updated {
+		if cfg.Id == "" {
+			continue
+		}
+		byID[cfg.Id] = cfg
+	}
+
+	for i := range config.CurrentConfig.CertificateConfigurations {
+		current := &config.CurrentConfig.CertificateConfigurations[i]
+		incoming, ok := byID[current.Id]
+		if !ok {
+			continue
+		}
+
+		if !timePtrEqual(current.LastCertificateUpdateDate, incoming.LastCertificateUpdateDate) {
+			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
+			changed = true
+		}
+		if current.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
+			current.LatestCertificateSha1 = incoming.LatestCertificateSha1
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+func timePtrEqual(a, b *time.Time) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Equal(*b)
 }
 
 func SendInventory() {

@@ -50,6 +50,8 @@ certkit-agent uninstall  [--service-name NAME] [--config PATH]
 certkit-agent run        [--key REGISTRATION_KEY] [--config PATH] [--once]
 certkit-agent register   REGISTRATION_KEY [--config PATH]
 certkit-agent validate   [--config PATH]
+certkit-agent lock       [--config PATH]
+certkit-agent unlock     [--config PATH]
 certkit-agent version
 ```
 
@@ -67,6 +69,13 @@ certkit-agent run --once
 
 # config and connectivity checks
 certkit-agent validate
+
+# lock an agent to prevent unexpected changes from the server
+# certificates are still updated but commands and configurations are set
+certkit-agent lock
+
+# allows configuration updates from the server
+certkit-agent unlock
 ```
 
 Windows uninstall is typically done via Add/Remove Programs (`CertKit Agent`). CLI fallback is:
@@ -82,6 +91,11 @@ Default config path:
 - Windows: `C:\ProgramData\CertKit\certkit-agent\config.json`
 
 A new config is created automatically if missing. Configs are agent-instance specific; do not clone a full config between hosts.
+
+Agent lock file:
+- Lock file path is `<config>.lock` (for example `/etc/certkit-agent/config.json.lock`).
+- While lock file is present, poll updates only change `last_certificate_update_date` and `latest_certificate_sha1`.
+- Remove lock with `certkit-agent unlock` (or by deleting the lock file).
 
 ## Platform Support
 

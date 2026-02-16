@@ -28,6 +28,8 @@ Usage:
   certkit-agent run        [--config PATH] [--once] [--key REGISTRATION_KEY]
   certkit-agent register   REGISTRATION_KEY [--config PATH]
   certkit-agent validate   [--config PATH]
+  certkit-agent lock       [--config PATH]
+  certkit-agent unlock     [--config PATH]
   certkit-agent version
 `, version)
 	os.Exit(2)
@@ -108,5 +110,25 @@ func validateCmd(args []string) {
 	if err := doValidate(*configPath); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+func lockCmd(args []string) {
+	fs := flag.NewFlagSet("lock", flag.ExitOnError)
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	fs.Parse(args)
+
+	if err := doLock(*configPath); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func unlockCmd(args []string) {
+	fs := flag.NewFlagSet("unlock", flag.ExitOnError)
+	configPath := fs.String("config", defaultConfigPath, "path to config.json")
+	fs.Parse(args)
+
+	if err := doUnlock(*configPath); err != nil {
+		log.Fatal(err)
 	}
 }

@@ -205,3 +205,49 @@ func hasKeyPair(cfg *Config) bool {
 	}
 	return true
 }
+
+func LockFilePath(configPath string) string {
+	return configPath + ".lock"
+}
+
+func IsLocked(configPath string) (bool, error) {
+	lockPath := LockFilePath(strings.TrimSpace(configPath))
+	if lockPath == ".lock" {
+		return false, fmt.Errorf("config path is empty")
+	}
+
+	_, err := os.Stat(lockPath)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("stat lock file %s: %w", lockPath, err)
+}
+
+func CreateLockFile(configPath string) error {
+	lockPath := LockFilePath(strings.TrimSpace(configPath))
+	if lockPath == ".lock" {
+		return fmt.Errorf("config path is empty")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return fmt.Errorf("create lock file directory: %w", err)
+	}
+
+	return utils.WriteFileAtomic(lockPath, []byte{}, 0o600)
+}
+
+func RemoveLockFile(configPath string) error {
+	lockPath := LockFilePath(strings.TrimSpace(configPath))
+	if lockPath == ".lock" {
+		return fmt.Errorf("config path is empty")
+	}
+
+	err := os.Remove(lockPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove lock file %s: %w", lockPath, err)
+	}
+	return nil
+}

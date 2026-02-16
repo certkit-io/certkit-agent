@@ -15,6 +15,7 @@ import (
 
 type ConfigurationPollRequest struct {
 	CertificateConfigurations []PollRequestCertificateConfig `json:"certificate_configurations"`
+	IsLocked                  bool                           `json:"is_locked"`
 }
 
 type PollRequestCertificateConfig struct {
@@ -26,6 +27,7 @@ type PollRequestCertificateConfig struct {
 
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
+	LockRequested                    bool                              `json:"lock_requested"`
 }
 
 func PollForConfiguration() (*ConfigurationPollResponse, error) {
@@ -51,8 +53,14 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 		})
 	}
 
+	isLocked, err := config.IsLocked(config.CurrentPath)
+	if err != nil {
+		return nil, fmt.Errorf("check lock file: %w", err)
+	}
+
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
+		IsLocked:                  isLocked,
 	}
 
 	requestBody, err := json.Marshal(payload)
