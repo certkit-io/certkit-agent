@@ -97,7 +97,8 @@ Auto-discovery support:
 
 - Linux systemd: `journalctl -u certkit-agent -f`
 - Linux foreground run: stdout/stderr
-- Windows service: `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
+- Windows Event Viewer: `Application` log, source `CertKit`
+- Windows service text log (fallback): `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
 
 ## Troubleshooting
 
