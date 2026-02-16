@@ -113,6 +113,7 @@ Default paths and service name:
 - Service: `certkit-agent`
 - Binary: `C:\Program Files\CertKit\bin\certkit-agent.exe`
 - Config: `C:\ProgramData\CertKit\certkit-agent\config.json`
+- Event log: `Application` with source `CertKit`
 - Log file: `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
 
 The installer also registers an Add/Remove Programs entry (`CertKit Agent`).
@@ -151,6 +152,7 @@ certkit-agent.exe install --service-name edge-agent --config "C:\ProgramData\Cer
 
 ```powershell
 Get-Service certkit-agent
+Get-WinEvent -LogName Application -MaxEvents 50 | Where-Object { $_.ProviderName -eq "CertKit" }
 Get-Content "C:\ProgramData\CertKit\certkit-agent\certkit-agent.log" -Tail 200
 certkit-agent.exe validate --config "C:\ProgramData\CertKit\certkit-agent\config.json"
 ```

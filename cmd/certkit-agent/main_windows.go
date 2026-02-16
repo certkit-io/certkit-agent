@@ -62,6 +62,7 @@ func runCmd(args []string) {
 			log.Fatal("--once cannot be used in service mode")
 		}
 		mustBeAdmin()
+		setLogOutputWithEventLog(os.Stdout)
 		runAgent(runOptions{
 			configPath:  *configPath,
 			stopCh:      nil,
@@ -79,6 +80,7 @@ func runCmd(args []string) {
 	}
 
 	mustBeAdmin()
+	setLogOutputWithEventLog(os.Stdout)
 
 	stopCh := make(chan struct{})
 	sigCh := make(chan os.Signal, 2)
@@ -250,7 +252,7 @@ func initServiceLogging(configPath string) {
 	if err != nil {
 		return
 	}
-	log.SetOutput(f)
+	setLogOutputWithEventLog(f)
 	go logTruncator(logFile, f)
 }
 
@@ -279,7 +281,7 @@ func logTruncator(logFile string, current *os.File) {
 		if err != nil {
 			continue
 		}
-		log.SetOutput(newFile)
+		setLogOutputWithEventLog(newFile)
 		old := current
 		current = newFile
 		old.Close()
