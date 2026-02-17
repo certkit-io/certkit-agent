@@ -26,12 +26,11 @@ function Get-Arch {
 }
 
 function Get-LatestReleaseTag {
-    $uri = "https://api.github.com/repos/$Owner/$Repo/releases"
-    $releases = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "certkit-agent-installer" }
-    if (-not $releases) {
+    $uri = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
+    $latest = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "certkit-agent-installer" }
+    if (-not $latest) {
         throw "No releases found for $Owner/$Repo"
     }
-    $latest = $releases | Sort-Object published_at -Descending | Select-Object -First 1
     if (-not $latest.tag_name) {
         throw "Failed to determine latest release tag"
     }
