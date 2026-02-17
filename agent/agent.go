@@ -75,12 +75,11 @@ func PollForConfiguration() (configChanged bool, err error) {
 		return false, nil
 	}
 
-	if response.LockRequested {
+	if response.LockRequested && !isLocked {
 		if err := config.CreateLockFile(config.CurrentPath); err != nil {
 			return false, err
 		}
 		log.Printf("Lock requested. Agent now locked. Lock file created at %s", config.LockFilePath(config.CurrentPath))
-		isLocked = true
 
 		// Immediately re-poll once so the server sees is_locked=true in the normal loop.
 		_, err := api.PollForConfiguration()
