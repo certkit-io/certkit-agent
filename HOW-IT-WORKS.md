@@ -21,8 +21,8 @@ The implementation attempts to be straightforward in an effort to make auditing 
    - If no `agent_id` exists, the agent uses your bootstrap registration key to register with CertKit.
 3. **Polling**
    - The agent polls for configuration updates on a 30‑second loop. (Coming soon: making this configurable)
-   - Certificate sync runs every ~10 minutes (or immediately after config changes).  Synchronization is typically a no-op, but it does ensure that the expected certificates live in the expected locations (and match the expected thumbprints) every 10 minutes.
-   - Inventory updates run every ~8 hours (or immediately after config changes).  That way if you add new software to your host we'll pick it up and make configuration easier in the UI.
+   - Certificate synchronization is run every time a new certificate is issued, the configuration changes, or the agent is restarted.  Synchronization will ensure that the certificates on disk match the certificates in the CertKit application.
+   - On initial registration and subsequent agent restarts, we also compile a list of installed software that is running on the host that might require TLS/SSL certificates, making configuration simpler.
 4. **Synchronization**
    - If a certificate has changed, the agent fetches it and writes to the configured destination(s).
    - If an update command is configured, it is executed to reload the service.
@@ -59,6 +59,14 @@ The implementation attempts to be straightforward in an effort to make auditing 
 ### Transport security
 - The agent uses HTTPS for API calls (default `https://app.certkit.io`).
 - Registration keys are only used during initial registration.
+
+### Locking an Agent
+- You can lock an agent once you have the configuration set up and working the way you want.  
+- This prevents unexpected changes to update commands by other users, and ensures configurations keep working.
+- Locking is a single button push in the CertKit UI
+- Once locked, the agent will no longer accept configuration updates from the application.  It will still update certifcates as they renew, but users in the UI will be unable to add, edit, or remove configurations from the agent.
+- Unlocking an agent can **only** occur from the host.  Either by running `unlock` or removing the lock file.
+- See [CLI-REFERENCE.md](./CLI-REFERENCE.md#lock) for more information.
 
 ### Least privilege & transparency
 - The agent only performs actions described in this repository: write certs, reload services, and report inventory.
