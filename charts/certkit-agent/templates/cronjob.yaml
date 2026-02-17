@@ -35,8 +35,9 @@ spec:
               {{- toYaml .Values.securityContext | nindent 14 }}
             image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
             imagePullPolicy: {{ .Values.image.pullPolicy }}
+            command: ["/bin/sh", "-c"]
             args:
-            - "--once"
+            - "exec certkit-agent run --config \"$CERTKIT_CONFIG_PATH\" --once"
             {{- with .Values.args }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -47,6 +48,7 @@ spec:
                   secretKeyRef:
                     name: {{ if .Values.secret.create }}{{ include "certkit-agent.fullname" . }}-secrets{{ else }}{{ .Values.secret.name }}{{ end }}
                     key: {{ if .Values.secret.create }}registration-key{{ else }}registration-key{{ end }}
+                    optional: true
             {{- end }}
             resources:
               {{- toYaml .Values.resources | nindent 14 }}

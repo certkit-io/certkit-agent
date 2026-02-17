@@ -32,10 +32,12 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if .Values.args }}
+          command: ["/bin/sh", "-c"]
           args:
+            - "exec certkit-agent run --config \"$CERTKIT_CONFIG_PATH\""
+            {{- if .Values.args }}
             {{- toYaml .Values.args | nindent 12 }}
-          {{- end }}
+            {{- end }}
           {{- if or .Values.secret.create .Values.secret.name }}
           env:
             - name: REGISTRATION_KEY
@@ -43,6 +45,7 @@ spec:
                 secretKeyRef:
                   name: {{ if .Values.secret.create }}{{ include "certkit-agent.fullname" . }}-secrets{{ else }}{{ .Values.secret.name }}{{ end }}
                   key: {{ if .Values.secret.create }}registration-key{{ else }}registration-key{{ end }}
+                  optional: true
           {{- end }}
           {{- if .Values.probes.liveness.enabled }}
           livenessProbe:
