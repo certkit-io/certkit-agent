@@ -1,0 +1,8 @@
+{{- if eq .Values.mode "deployment" }}
+Agent is running as a deployment.
+kubectl get deployment --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "certkit-agent.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+{{- else if eq .Values.mode "cronjob" }}
+Agent is running as a cronjob with the schedule "{{ .Values.cronjob.schedule }}".
+kubectl get cronjob --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "certkit-agent.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+{{- end }}
+
