@@ -7,6 +7,8 @@
 //	certkit-agent run
 //	certkit-agent register
 //	certkit-agent validate
+//	certkit-agent lock
+//	certkit-agent unlock
 //	certkit-agent version
 //
 // Build:
@@ -65,6 +67,10 @@ func main() {
 		registerCmd(os.Args[2:])
 	case "validate":
 		validateCmd(os.Args[2:])
+	case "lock":
+		lockCmd(os.Args[2:])
+	case "unlock":
+		unlockCmd(os.Args[2:])
 	case "version":
 		versionCmd()
 	default:

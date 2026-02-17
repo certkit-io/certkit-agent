@@ -2,7 +2,7 @@
 
 ## Name
 
-`certkit-agent` - install, run, register, validate, and uninstall the CertKit Agent.
+`certkit-agent` - install, run, register, validate, lock, unlock, and uninstall the CertKit Agent.
 
 ## Synopsis
 
@@ -12,6 +12,8 @@ certkit-agent uninstall  [--service-name NAME] [--config PATH]
 certkit-agent run        [--key REGISTRATION_KEY] [--config PATH] [--once]
 certkit-agent register   REGISTRATION_KEY [--config PATH]
 certkit-agent validate   [--config PATH]
+certkit-agent lock       [--config PATH]
+certkit-agent unlock     [--config PATH]
 certkit-agent version
 ```
 
@@ -205,6 +207,67 @@ certkit-agent version
 #### Behavior
 
 - Prints the agent version string.
+
+### `lock`
+
+#### Synopsis
+
+```text
+certkit-agent lock [--config PATH]
+```
+
+#### Options
+
+- `--config PATH`
+  - Optional. Advanced setup for non-default config path.
+
+#### Behavior
+
+- Creates `<config>.lock` next to the config file (for example `config.json.lock`).
+- When locked, server updates are restricted to certificate updates. No new configuration changes or update command modifications are allowed from the CertKit app.  This is a security feature to prevent unexpected changes from the app itself once everything is setup and working.
+
+#### Examples
+
+```bash
+certkit-agent lock
+certkit-agent lock --config /etc/certkit-agent/config.json
+```
+
+```powershell
+certkit-agent.exe lock
+certkit-agent.exe lock --config "C:\ProgramData\CertKit\certkit-agent\config.json"
+```
+
+### `unlock`
+
+#### Synopsis
+
+```text
+certkit-agent unlock [--config PATH]
+```
+
+#### Options
+
+- `--config PATH`
+  - Optional. Advanced setup for non-default config path.
+
+#### Behavior
+
+- Removes `<config>.lock`.
+- Unlock removes the lock file and allows the CertKit app to configure the agent again.
+- The agent can only be unlocked from the host itself.  It cannot be unlocked from the CertKit application.
+
+#### Examples
+
+```bash
+certkit-agent unlock
+certkit-agent unlock --config /etc/certkit-agent/config.json
+```
+
+```powershell
+certkit-agent.exe unlock
+certkit-agent.exe unlock --config "C:\ProgramData\CertKit\certkit-agent\config.json"
+```
 
 ## Operational Sequences
 
