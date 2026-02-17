@@ -1,5 +1,5 @@
 Param(
-    [string]$Version = $env:CERTKIT_VERSION,
+    [string]$Version = $env:VERSION,
     [string]$ServiceName = "certkit-agent",
     [string]$InstallDir = "C:\\Program Files\\CertKit",
     [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json",
