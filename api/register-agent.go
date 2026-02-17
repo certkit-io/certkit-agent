@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -155,6 +156,10 @@ func isDockerEnvironment() bool {
 }
 
 func isVirtualMachineEnvironment() bool {
+	if runtime.GOOS == "windows" {
+		return isVirtualMachineEnvironmentWindows()
+	}
+
 	if runtime.GOOS != "linux" {
 		return false
 	}
@@ -190,6 +195,34 @@ func looksVirtualized(value string) bool {
 		strings.Contains(value, "microsoft corporation") ||
 		strings.Contains(value, "hyper-v") ||
 		strings.Contains(value, "xen")
+}
+
+func isVirtualMachineEnvironmentWindows() bool {
+	// Prefer CIM data when available.
+	out, err := exec.Command(
+		"powershell",
+		"-NoProfile",
+		"-NonInteractive",
+		"-Command",
+		`$cs = Get-CimInstance Win32_ComputerSystem; "$($cs.Manufacturer)|$($cs.Model)|$($cs.HypervisorPresent)"`,
+	).CombinedOutput()
+	if err == nil {
+		parsed := strings.ToLower(strings.TrimSpace(string(out)))
+		if strings.Contains(parsed, "|true") {
+			return true
+		}
+		if looksVirtualized(parsed) {
+			return true
+		}
+	}
+
+	// Fallback for hosts where CIM cmdlets are unavailable.
+	out, err = exec.Command("wmic", "computersystem", "get", "manufacturer,model", "/value").CombinedOutput()
+	if err == nil && looksVirtualized(string(out)) {
+		return true
+	}
+
+	return false
 }
 
 func formatZoneWithOffset(zoneName string, offsetSeconds int) string {
