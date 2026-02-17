@@ -1,0 +1,107 @@
+# Default values for certkit-agent.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# mode can be "deployment" or "cronjob"
+mode: deployment
+
+image:
+  repository: ghcr.io/certkit-io/certkit-agent
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: false
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# Secret management for registration-key
+secret:
+  # If true, creates a new Secret with the provided key.
+  # If false, expects an existing secret with the name specified below.
+  create: true
+  # Name of the secret. If create is true, this name will be used for the new secret.
+  # If create is false, this existing secret will be referenced.
+  # If left empty and create is true, a name is generated using the fullname template + "-secrets"
+  name: "" 
+  # The registration key value (base64 encoding handled by template if create=true)
+  key: ""
+
+# Configuration for CronJob mode
+cronjob:
+  schedule: "0 0 * * *" # Daily at midnight
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  restartPolicy: OnFailure
+
+# Probes configuration (using shell exec as no HTTP endpoint exists)
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    # Simple check to see if process is running
+    command: ["pgrep", "certkit-agent"]
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    # Simple check to see if process is running
+    command: ["pgrep", "certkit-agent"]
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Additional volumes and mounts
+volumes: []
+# - name: certs
+#   hostPath:
+#     path: /var/lib/haproxy/certs
+#     type: Directory
+
+volumeMounts: []
+# - mountPath: /etc/certkit-agent
+#   name: certs
+#   readOnly: false
+
+# Override or extend arguments
+args: []
+# - "--verbose"

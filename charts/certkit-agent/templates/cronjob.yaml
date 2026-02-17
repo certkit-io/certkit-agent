@@ -1,0 +1,69 @@
+{{- if eq .Values.mode "cronjob" -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "certkit-agent.fullname" . }}
+  labels:
+    {{- include "certkit-agent.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
+  failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
+  successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          labels:
+            {{- include "certkit-agent.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: {{ .Values.cronjob.restartPolicy }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "certkit-agent.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+          - name: {{ .Chart.Name }}
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            args:
+            - "--once"
+            {{- with .Values.args }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if or .Values.secret.create .Values.secret.name }}
+            env:
+              - name: REGISTRATION_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ if .Values.secret.create }}{{ include "certkit-agent.fullname" . }}-secrets{{ else }}{{ .Values.secret.name }}{{ end }}
+                    key: {{ if .Values.secret.create }}registration-key{{ else }}registration-key{{ end }}
+            {{- end }}
+            resources:
+              {{- toYaml .Values.resources | nindent 14 }}
+            volumeMounts:
+              {{- toYaml .Values.volumeMounts | nindent 14 }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumes:
+            {{- toYaml .Values.volumes | nindent 12 }}
+{{- end }}
