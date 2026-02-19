@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -23,6 +24,8 @@ const (
 	DefaultWindowsConfigPath  = `C:\ProgramData\CertKit\certkit-agent\config.json`
 	defaultServiceDescription = "CertKit Agent service"
 	windowsUninstallRegPath   = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent`
+	windowsEventLogSource     = "CertKit"
+	windowsEventLogAppRegPath = `SYSTEM\CurrentControlSet\Services\EventLog\Application`
 )
 
 func InstallWindows(args []string, defaultServiceName string) {
@@ -66,6 +69,10 @@ func InstallWindows(args []string, defaultServiceName string) {
 
 	if err := config.SetBootstrapServiceName(*configPath, *serviceName); err != nil {
 		log.Fatalf("failed to persist service name in config: %v", err)
+	}
+
+	if err := ensureWindowsEventLogSource(); err != nil {
+		log.Printf("Warning: failed to register Windows Event Log source %q: %v", windowsEventLogSource, err)
 	}
 
 	manager, err := mgr.Connect()
@@ -166,6 +173,9 @@ func UninstallWindows(args []string, defaultServiceName string) {
 	if err := removeWindowsUninstallRegistryEntry(); err != nil {
 		log.Printf("Warning: failed to remove Add/Remove Programs entry: %v", err)
 	}
+	if err := removeWindowsEventLogSource(); err != nil {
+		log.Printf("Warning: failed to remove Windows Event Log source %q: %v", windowsEventLogSource, err)
+	}
 
 	unregisterAgent(*configPath)
 
@@ -228,4 +238,60 @@ func removeWindowsUninstallRegistryEntry() error {
 		return err
 	}
 	return nil
+}
+
+func ensureWindowsEventLogSource() error {
+	appkey, err := registry.OpenKey(registry.LOCAL_MACHINE, windowsEventLogAppRegPath, registry.CREATE_SUB_KEY)
+	if err != nil {
+		return err
+	}
+	defer appkey.Close()
+
+	sk, _, err := registry.CreateKey(appkey, windowsEventLogSource, registry.SET_VALUE|registry.QUERY_VALUE)
+	if err != nil {
+		return err
+	}
+	defer sk.Close()
+
+	messageFile := selectWindowsEventMessageFile()
+	if err := sk.SetDWordValue("CustomSource", 1); err != nil {
+		return err
+	}
+	if err := sk.SetExpandStringValue("EventMessageFile", messageFile); err != nil {
+		return err
+	}
+	if err := sk.SetDWordValue("TypesSupported", eventlog.Error|eventlog.Warning|eventlog.Info); err != nil {
+		return err
+	}
+
+	if el, err := eventlog.Open(windowsEventLogSource); err == nil {
+		_ = el.Close()
+	}
+
+	return nil
+}
+
+func removeWindowsEventLogSource() error {
+	err := eventlog.Remove(windowsEventLogSource)
+	if err != nil && !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) && !errors.Is(err, windows.ERROR_PATH_NOT_FOUND) {
+		return err
+	}
+	return nil
+}
+
+func selectWindowsEventMessageFile() string {
+	candidates := []string{
+		`%SystemRoot%\System32\EventCreate.exe`,
+		`%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll`,
+		`%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\EventLogMessages.dll`,
+	}
+
+	for _, candidate := range candidates {
+		expanded := os.ExpandEnv(candidate)
+		if _, err := os.Stat(expanded); err == nil {
+			return candidate
+		}
+	}
+
+	return candidates[len(candidates)-1]
 }
