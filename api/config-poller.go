@@ -112,7 +112,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 		utils.MarkAgentUnauthorized()
 		return nil, nil
 	} else if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("poll failed: status=%d body=%s", resp.StatusCode, body)
+		return nil, fmt.Errorf("poll failed: status=%d body=%.100s", resp.StatusCode, body)
 	}
 
 	utils.MarkAgentAuthorized()

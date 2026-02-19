@@ -36,8 +36,9 @@ func SynchronizeCertificates(configChanged bool, forceSync bool) []api.AgentConf
 		cfg := &config.CurrentConfig.CertificateConfigurations[i]
 		lastStatus := cfg.LastStatus
 		waitingForWindow := lastStatus == statusWaitingWindow
+		retryFetch := lastStatus == statusErrorGetCert
 
-		if !configChanged && !forceSync && !waitingForWindow {
+		if !configChanged && !forceSync && !waitingForWindow && !retryFetch {
 			continue
 		}
 
@@ -110,7 +111,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 
 	needsFetch, err := needsCertificateFetch(cfg)
 	if err != nil {
-		status.Status = statusErrorGetCert
+		status.Status = statusErrorGeneral
 		status.Message = fmt.Sprintf("Error checking whether we need to fetch certificate: %v", err)
 		return status
 	}
@@ -125,6 +126,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 			if err != nil {
 				status.Status = statusErrorGetCert
 				status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
+				log.Print(status.Message)
 				return status
 			}
 			if pfxResponse == nil || len(pfxResponse.PfxBytes) == 0 {
@@ -145,6 +147,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 			if err != nil {
 				status.Status = statusErrorGetCert
 				status.Message = fmt.Sprintf("Error fetching certificate: %v", err)
+				log.Print(status.Message)
 				return status
 			}
 			if response == nil {

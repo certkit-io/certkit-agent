@@ -41,7 +41,7 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 	needsFetch := false
 	exists, err := certInStore(thumbprint)
 	if err != nil {
-		status.Status = statusErrorGetCert
+		status.Status = statusErrorGeneral
 		status.Message = fmt.Sprintf("Error checking certificate store: %v", err)
 		return status
 	}
@@ -53,6 +53,7 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 		if err != nil {
 			status.Status = statusErrorGetCert
 			status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
+			log.Print(status.Message)
 			return status
 		}
 		if resp == nil || len(resp.PfxBytes) == 0 {
