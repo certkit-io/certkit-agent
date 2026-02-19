@@ -9,9 +9,12 @@ $mode = if ($Release) { "release" } else { "local" }
 
 $composeFiles = @(
   "nginx\nginx.docker-compose.yml",
+  "nginx2\nginx2.docker-compose.yml",
   "apache\apache.docker-compose.yml",
   "litespeed\litespeed.docker-compose.yml",
-  "haproxy\haproxy.docker-compose.yml"
+  "haproxy\haproxy.docker-compose.yml",
+  "cron\cron.docker-compose.yml",
+  "systemd\systemd.docker-compose.yml"
 )
 
 function Set-EnvValue {
