@@ -21,22 +21,30 @@ import (
 const (
 	statusSynced         = "SYNCED"
 	statusPendingSync    = "PENDING_SYNC"
+	statusWaitingWindow  = "WAITING_FOR_WINDOW"
 	statusErrorUpdateCmd = "ERROR_UPDATE_CMD"
 	statusErrorGetCert   = "ERROR_GET_CERTS"
 	statusErrorWriteCert = "ERROR_WRITE_CERTS"
 	statusErrorGeneral   = "ERROR_GENERAL"
 )
 
-func SynchronizeCertificates(configChanged bool) []api.AgentConfigStatusUpdate {
+func SynchronizeCertificates(configChanged bool, forceSync bool) []api.AgentConfigStatusUpdate {
 	statuses := make([]api.AgentConfigStatusUpdate, 0, len(config.CurrentConfig.CertificateConfigurations))
 	configDirty := false
 
 	for i := range config.CurrentConfig.CertificateConfigurations {
 		cfg := &config.CurrentConfig.CertificateConfigurations[i]
+		lastStatus := cfg.LastStatus
+		waitingForWindow := lastStatus == statusWaitingWindow
+
+		if !configChanged && !forceSync && !waitingForWindow {
+			continue
+		}
+
 		status := synchronizeCertificate(*cfg, configChanged)
 		if status.ConfigId != "" {
-			statuses = append(statuses, status)
 			if status.Status != "" && status.Status != cfg.LastStatus {
+				statuses = append(statuses, status)
 				cfg.LastStatus = status.Status
 				configDirty = true
 			}
@@ -51,6 +59,29 @@ func SynchronizeCertificates(configChanged bool) []api.AgentConfigStatusUpdate {
 }
 
 func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+	status := api.AgentConfigStatusUpdate{
+		ConfigId:       cfg.Id,
+		LastStatusDate: time.Now().UTC(),
+	}
+
+	allowed, err := IsWithinUpdateWindow(time.Now(), cfg.UpdateWindow)
+	if err != nil {
+		log.Printf("Skipping certificate synchronization for config %s: invalid update_window %q (%v)", cfg.Id, cfg.UpdateWindow, err)
+		status.Status = statusErrorGeneral
+		status.Message = fmt.Sprintf("Skipped by invalid update_window: %s", cfg.UpdateWindow)
+		return status
+	}
+	if !allowed {
+		if configChanged {
+			log.Printf("Waiting on synchronization for config %s: outside deploy window: %q", cfg.Id, cfg.UpdateWindow)
+		}
+		status.Status = statusWaitingWindow
+		status.Message = "Waiting for deploy window to update configuration"
+		return status
+	} else if cfg.LastStatus == statusWaitingWindow {
+		log.Printf("Inside deploy window: %q. Beginning synchronization checks.", cfg.UpdateWindow)
+	}
+
 	if strings.EqualFold(cfg.ConfigType, "iis") {
 		return synchronizeIISCertificate(cfg, configChanged)
 	}
@@ -58,11 +89,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return synchronizeRRASCertificate(cfg, configChanged)
 	}
 
-	status := api.AgentConfigStatusUpdate{
-		ConfigId:       cfg.Id,
-		LastStatusDate: time.Now().UTC(),
-	}
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd
+	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
 	retryFull := cfg.LastStatus == statusPendingSync ||
 		cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
@@ -89,6 +116,8 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	}
 
 	shouldFetch := needsFetch || retryFull
+	needsApply := needsFetch || configChanged || retryUpdateOnly || retryFull
+
 	if shouldFetch {
 		if isPfx {
 			log.Printf("Fetching new PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
@@ -133,7 +162,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		}
 	}
 
-	if needsFetch || configChanged || retryUpdateOnly || retryFull {
+	if needsApply {
 		if err := applyCertificatePermissions(cfg); err != nil {
 			status.Status = statusErrorWriteCert
 			status.Message = fmt.Sprintf("Error applying certificate permissions: %v", err)
@@ -141,16 +170,18 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		}
 	}
 
-	if needsFetch || configChanged || retryUpdateOnly || retryFull {
-		if !needsFetch && configChanged {
-			log.Print("Running update cmd due to configuration change...")
-		}
-		if retryUpdateOnly || retryFull {
-			log.Print("Retrying update command due to previous failure...")
-		}
+	if needsApply {
 		if strings.TrimSpace(cfg.UpdateCmd) == "" {
 			log.Print("No update command configured; skipping update command.")
 		} else {
+			if !needsFetch && configChanged {
+				log.Print("Running update cmd due to configuration change...")
+			}
+			if (retryUpdateOnly || retryFull) && cfg.LastStatus != statusWaitingWindow {
+				log.Print("Retrying update command due to previous failure...")
+			} else if (retryUpdateOnly || retryFull) && cfg.LastStatus == statusWaitingWindow {
+				log.Print("Running update command inside deploy window...")
+			}
 			if commandOutput, err := runUpdateCommand(cfg); err != nil {
 				status.Status = statusErrorUpdateCmd
 				status.Message = fmt.Sprintf("Error running update command: %v", err)

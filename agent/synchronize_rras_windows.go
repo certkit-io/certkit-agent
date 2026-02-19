@@ -22,7 +22,8 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 
 	retryFull := cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
+		cfg.LastStatus == statusErrorGeneral ||
+		cfg.LastStatus == statusWaitingWindow
 
 	if cfg.Id == "" || cfg.CertificateId == "" {
 		log.Printf("Skipping RRAS config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)

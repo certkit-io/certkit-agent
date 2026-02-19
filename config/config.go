@@ -54,6 +54,7 @@ type CertificateConfiguration struct {
 	OwnerUser                   string     `json:"owner_user,omitempty"`
 	OwnerGroup                  string     `json:"owner_group,omitempty"`
 	FilePermissions             string     `json:"file_permissions,omitempty"`
+	UpdateWindow                string     `json:"update_window,omitempty"`
 	UpdateCmd                   string     `json:"update_cmd,omitempty"`
 	Name                        string     `json:"name,omitempty"`
 	AllInOne                    bool       `json:"all_in_one,omitempty"`

@@ -21,7 +21,7 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 	importedPfx := false
 	updatedBinding := false
 
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd
+	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
 	retryFull := cfg.LastStatus == statusPendingSync ||
 		cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
