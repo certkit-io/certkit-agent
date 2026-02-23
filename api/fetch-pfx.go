@@ -75,7 +75,7 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 		utils.MarkAgentUnauthorized()
 		return nil, nil
 	} else if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch pfx failed: status=%d body=%s", resp.StatusCode, body)
+		return nil, fmt.Errorf("fetch pfx failed: status=%d body=%.100s", resp.StatusCode, body)
 	}
 
 	utils.MarkAgentAuthorized()

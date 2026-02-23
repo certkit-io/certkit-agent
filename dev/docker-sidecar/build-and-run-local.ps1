@@ -9,7 +9,8 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-& (Join-Path $scriptDir "build.ps1")
+$repoRoot = Resolve-Path (Join-Path $scriptDir "..\\..")
+& (Join-Path $repoRoot "scripts\\build.ps1")
 
 if (-not $ApiBase) {
     throw "CERTKIT_API_BASE is required (pass -ApiBase or set env var)."

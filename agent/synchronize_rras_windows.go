@@ -22,7 +22,8 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 
 	retryFull := cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
+		cfg.LastStatus == statusErrorGeneral ||
+		cfg.LastStatus == statusWaitingWindow
 
 	if cfg.Id == "" || cfg.CertificateId == "" {
 		log.Printf("Skipping RRAS config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
@@ -40,7 +41,7 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 	needsFetch := false
 	exists, err := certInStore(thumbprint)
 	if err != nil {
-		status.Status = statusErrorGetCert
+		status.Status = statusErrorGeneral
 		status.Message = fmt.Sprintf("Error checking certificate store: %v", err)
 		return status
 	}
@@ -52,6 +53,7 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 		if err != nil {
 			status.Status = statusErrorGetCert
 			status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
+			log.Print(status.Message)
 			return status
 		}
 		if resp == nil || len(resp.PfxBytes) == 0 {

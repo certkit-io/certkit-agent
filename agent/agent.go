@@ -20,11 +20,8 @@ func PollAndSync(forceSync bool) {
 	if utils.IsAgentUnauthorized() {
 		return
 	}
-	if !configChanged && !forceSync {
-		return
-	}
 
-	statuses := SynchronizeCertificates(configChanged)
+	statuses := SynchronizeCertificates(configChanged, forceSync)
 	if len(statuses) > 0 {
 		if err := api.UpdateConfigStatus(statuses); err != nil {
 			reportAgentError(err, "", "")
