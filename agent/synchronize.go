@@ -77,7 +77,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 			log.Printf("Waiting on synchronization for config %s: outside deploy window: %q", cfg.Id, cfg.UpdateWindow)
 		}
 		status.Status = statusWaitingWindow
-		status.Message = "Waiting for deploy window to update configuration"
+		status.Message = "Waiting for deploy window to finish synchronization."
 		return status
 	} else if cfg.LastStatus == statusWaitingWindow {
 		log.Printf("Inside deploy window: %q. Beginning synchronization checks.", cfg.UpdateWindow)
