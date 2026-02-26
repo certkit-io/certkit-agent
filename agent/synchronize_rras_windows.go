@@ -68,6 +68,10 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 			return status
 		}
 		importedPfx = true
+
+		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		}
 	}
 
 	if needsFetch || retryFull {

@@ -72,6 +72,10 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 		}
 		importedPfx = true
 
+		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		}
+
 		if thumbprint != "" {
 			if exists, err := certInStore(thumbprint); err == nil && !exists {
 				log.Printf("Warning: thumbprint %s not found after import", thumbprint)
