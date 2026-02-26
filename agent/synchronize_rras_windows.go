@@ -85,6 +85,12 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 		appliedRrasSsl = true
 	}
 
+	if importedPfx {
+		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to clean up old certificates: %v", err)
+		}
+	}
+
 	if importedPfx || appliedRrasSsl {
 		log.Printf("RRAS synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", cfg.Id, importedPfx, appliedRrasSsl)
 	} else {
