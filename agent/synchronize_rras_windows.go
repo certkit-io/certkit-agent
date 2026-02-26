@@ -68,6 +68,10 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 			return status
 		}
 		importedPfx = true
+
+		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		}
 	}
 
 	if needsFetch || retryFull {
@@ -79,6 +83,12 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 			return status
 		}
 		appliedRrasSsl = true
+	}
+
+	if importedPfx {
+		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to clean up old certificates: %v", err)
+		}
 	}
 
 	if importedPfx || appliedRrasSsl {

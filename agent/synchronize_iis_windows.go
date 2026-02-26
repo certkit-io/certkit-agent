@@ -72,6 +72,10 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 		}
 		importedPfx = true
 
+		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		}
+
 		if thumbprint != "" {
 			if exists, err := certInStore(thumbprint); err == nil && !exists {
 				log.Printf("Warning: thumbprint %s not found after import", thumbprint)
@@ -86,6 +90,12 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 			return status
 		}
 		updatedBinding = true
+	}
+
+	if importedPfx {
+		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to clean up old certificates: %v", err)
+		}
 	}
 
 	if importedPfx || updatedBinding {
@@ -145,14 +155,6 @@ foreach ($binding in @($bindings)) {
 
     $binding.AddSslCertificate($newThumb, "My")
 
-    # Optional cleanup: remove previous cert from LocalMachine\My
-    if ($currentThumbprint -and $currentThumbprint -ne $newThumb) {
-        Get-ChildItem "Cert:\LocalMachine\My\$currentThumbprint" -ErrorAction SilentlyContinue |
-            ForEach-Object {
-                Write-Host "Removing old cert: $($_.Thumbprint)"
-                Remove-Item $_.PSPath -Force
-            }
-    }
 }
 
 Write-Host "IIS bindings updated."
