@@ -9,12 +9,12 @@ import (
 	"github.com/certkit-io/certkit-agent/config"
 )
 
-func synchronizeRRASCertificate(cfg config.CertificateConfiguration, _ bool) api.AgentConfigStatusUpdate {
+func synchronizeRemoteAccessCertificate(cfg config.CertificateConfiguration, _ bool) api.AgentConfigStatusUpdate {
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
 		Status:         statusErrorGeneral,
-		Message:        "RRAS synchronization is only supported on Windows",
+		Message:        "RemoteAccess synchronization is only supported on Windows",
 	}
 	return status
 }
