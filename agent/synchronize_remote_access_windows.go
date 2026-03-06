@@ -124,16 +124,9 @@ $serviceName = if ($isDirectAccess) { 'RaMgmtSvc' } else { 'RemoteAccess' }
 $certPath = "Cert:\LocalMachine\My\" + $thumb
 $cert = Get-ChildItem $certPath -ErrorAction Stop
 
-$svcBefore = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-$wasRunning = $svcBefore -and $svcBefore.Status -eq 'Running'
-
 Set-RemoteAccess -SslCertificate $cert -ErrorAction Stop
 
-if (-not $wasRunning) {
-    Start-Service -Name $serviceName -ErrorAction SilentlyContinue
-} else {
-    Restart-Service -Name $serviceName -Force -ErrorAction Stop
-}
+Restart-Service -Name $serviceName -Force -ErrorAction Stop
 
 $deadline = (Get-Date).AddSeconds(120)
 $lastState = ""
