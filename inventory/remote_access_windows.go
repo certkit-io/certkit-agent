@@ -23,6 +23,10 @@ func (RemoteAccessProvider) Collect() ([]api.InventoryItem, error) {
 		return nil, nil
 	}
 
+	if !result.DAInstalled && !result.RRASInstalled {
+		return nil, nil
+	}
+
 	domains := make([]string, 0, len(result.Domains))
 	for _, domain := range result.Domains {
 		if normalized, ok := normalizeDomain(domain); ok {
@@ -30,37 +34,40 @@ func (RemoteAccessProvider) Collect() ([]api.InventoryItem, error) {
 		}
 	}
 
-	var item api.InventoryItem
+	items := make([]api.InventoryItem, 0, 2)
 	if result.DAInstalled {
-		item = api.InventoryItem{
+		items = append(items, api.InventoryItem{
 			Server:          "direct-access",
 			ConfigPath:      "DirectAccess",
 			CertificatePath: "Direct Access",
 			KeyPath:         "Direct Access",
 			Domains:         joinDomains(domains),
-		}
-	} else {
-		item = api.InventoryItem{
+		})
+	}
+	if result.RRASInstalled {
+		items = append(items, api.InventoryItem{
 			Server:          "rras",
 			ConfigPath:      "RRAS:SSTP",
 			CertificatePath: "Routing and Remote Access:443",
 			KeyPath:         "Routing and Remote Access:443",
 			Domains:         joinDomains(domains),
-		}
+		})
 	}
 
-	return []api.InventoryItem{item}, nil
+	return items, nil
 }
 
 type remoteAccessInventoryResult struct {
-	DAInstalled bool     `json:"DAInstalled"`
-	Domains     []string `json:"Domains"`
+	DAInstalled   bool     `json:"DAInstalled"`
+	RRASInstalled bool     `json:"RRASInstalled"`
+	Domains       []string `json:"Domains"`
 }
 
 func loadRemoteAccessInventoryFromPowerShell() (remoteAccessInventoryResult, bool) {
 	script := `
 $domains = @()
 $daInstalled = $false
+$rrasInstalled = $false
 try {
     $remoteAccess = Get-RemoteAccess -ErrorAction Stop
 } catch {
@@ -69,6 +76,9 @@ try {
 
 if ($remoteAccess.DAStatus -eq 'Installed') {
     $daInstalled = $true
+}
+if ($remoteAccess.VpnStatus -eq 'Installed') {
+    $rrasInstalled = $true
 }
 
 if ($remoteAccess -and $remoteAccess.SslCertificate -and $remoteAccess.SslCertificate.Thumbprint) {
@@ -84,8 +94,9 @@ if ($remoteAccess -and $remoteAccess.SslCertificate -and $remoteAccess.SslCertif
 }
 
 [pscustomobject]@{
-    DAInstalled = $daInstalled
-    Domains     = $domains
+    DAInstalled   = $daInstalled
+    RRASInstalled = $rrasInstalled
+    Domains       = $domains
 } | ConvertTo-Json -Depth 5
 `
 
