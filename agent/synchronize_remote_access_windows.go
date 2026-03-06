@@ -5,6 +5,7 @@ package agent
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -12,21 +13,22 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+func synchronizeRemoteAccessCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
 	}
 	importedPfx := false
-	appliedRrasSsl := false
+	appliedSsl := false
 
-	retryFull := cfg.LastStatus == statusErrorGetCert ||
+	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
+	retryFull := cfg.LastStatus == statusPendingSync ||
+		cfg.LastStatus == statusErrorGetCert ||
 		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral ||
-		cfg.LastStatus == statusWaitingWindow
+		cfg.LastStatus == statusErrorGeneral
 
 	if cfg.Id == "" || cfg.CertificateId == "" {
-		log.Printf("Skipping RRAS config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
+		log.Printf("Skipping RemoteAccess config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
 		return api.AgentConfigStatusUpdate{}
 	}
 
@@ -47,8 +49,11 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 	}
 	needsFetch = !exists
 
-	if needsFetch || retryFull {
-		log.Printf("Fetching new RRAS PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
+	shouldFetch := needsFetch || retryFull
+	shouldApply := needsFetch || configChanged || retryUpdateOnly || retryFull
+
+	if shouldFetch {
+		log.Printf("Fetching new RemoteAccess PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
 		resp, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
 		if err != nil {
 			status.Status = statusErrorGetCert
@@ -74,15 +79,15 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 		}
 	}
 
-	if needsFetch || retryFull {
-		log.Printf("RRAS apply requested (config=%s, cert=%s, thumbprint=%s, needsFetch=%t, retryFull=%t)",
-			cfg.Id, cfg.CertificateId, thumbprint, needsFetch, retryFull)
-		if err := applyRRASSslCertificate(thumbprint); err != nil {
+	if shouldApply {
+		log.Printf("RemoteAccess apply requested (config=%s, cert=%s, thumbprint=%s, needsFetch=%t, configChanged=%t, retryUpdateOnly=%t, retryFull=%t)",
+			cfg.Id, cfg.CertificateId, thumbprint, needsFetch, configChanged, retryUpdateOnly, retryFull)
+		if err := applyRemoteAccessSslCertificate(thumbprint, cfg.ConfigType); err != nil {
 			status.Status = statusErrorUpdateCmd
-			status.Message = fmt.Sprintf("Error applying RRAS SSL certificate: %v", err)
+			status.Message = fmt.Sprintf("Error applying RemoteAccess SSL certificate: %v", err)
 			return status
 		}
-		appliedRrasSsl = true
+		appliedSsl = true
 	}
 
 	if importedPfx {
@@ -91,63 +96,68 @@ func synchronizeRRASCertificate(cfg config.CertificateConfiguration, configChang
 		}
 	}
 
-	if importedPfx || appliedRrasSsl {
-		log.Printf("RRAS synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", cfg.Id, importedPfx, appliedRrasSsl)
+	if importedPfx || appliedSsl {
+		log.Printf("RemoteAccess synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", cfg.Id, importedPfx, appliedSsl)
 	} else {
-		log.Printf("RRAS configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id)
+		log.Printf("RemoteAccess configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id)
 	}
 
 	status.Status = statusSynced
 	return status
 }
 
-func applyRRASSslCertificate(thumbprint string) error {
+func applyRemoteAccessSslCertificate(thumbprint string, configType string) error {
 	thumbprint = normalizeThumbprint(thumbprint)
 	if thumbprint == "" {
-		return fmt.Errorf("missing thumbprint for RRAS binding")
+		return fmt.Errorf("missing thumbprint for RemoteAccess binding")
 	}
 
+	isDirectAccess := strings.EqualFold(configType, "direct-access")
+
 	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
 Import-Module RemoteAccess
 
 $thumb = '%s'
+$isDirectAccess = $%s
+$serviceName = if ($isDirectAccess) { 'RaMgmtSvc' } else { 'RemoteAccess' }
 $certPath = "Cert:\LocalMachine\My\" + $thumb
 $cert = Get-ChildItem $certPath -ErrorAction Stop
 
 Set-RemoteAccess -SslCertificate $cert -ErrorAction Stop
 
-Restart-Service -Name RemoteAccess -Force -ErrorAction Stop
+Restart-Service -Name $serviceName -Force -ErrorAction Stop
 
 $deadline = (Get-Date).AddSeconds(120)
 $lastState = ""
 while ((Get-Date) -lt $deadline) {
-    $svc = Get-Service -Name RemoteAccess -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if (-not $svc) {
-        throw "RemoteAccess service not found."
+        throw ($serviceName + " service not found.")
     }
 
     $state = $svc.Status.ToString()
     if ($state -ne $lastState) {
-        Write-Host ("RemoteAccess service state: " + $state)
+        Write-Host ($serviceName + " service state: " + $state)
         $lastState = $state
     }
 
     if ($svc.Status -eq 'Running') {
-        Write-Host "RRAS SSL certificate updated."
+        Write-Host ("RemoteAccess SSL certificate updated. Active service: " + $serviceName)
         return
     }
 
     if ($svc.Status -eq 'Stopped') {
-        Start-Service -Name RemoteAccess -ErrorAction SilentlyContinue
+        Start-Service -Name $serviceName -ErrorAction SilentlyContinue
     }
 
     Start-Sleep -Seconds 2
 }
 
-throw "RemoteAccess service did not reach Running within timeout after applying certificate."
-`, escapePowerShellString(thumbprint))
+throw ($serviceName + " service did not reach Running within timeout after applying certificate.")
+`, escapePowerShellString(thumbprint), fmt.Sprintf("%t", isDirectAccess))
 
 	out, err := utils.RunPowerShell(script)
-	logPowerShellOutput("applyRRASSslCertificate", out)
+	logPowerShellOutput("applyRemoteAccessSslCertificate", out)
 	return err
 }
