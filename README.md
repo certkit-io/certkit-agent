@@ -127,4 +127,4 @@ Auto-discovery support:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Elastic-2.0. See [LICENSE](LICENSE).
