@@ -38,7 +38,7 @@ func InitKeystoreClient(host string, caCertPEM string) error {
 	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsCfg,
 		},

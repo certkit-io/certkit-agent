@@ -158,6 +158,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 			}
 
 			if err := writeCertificateFiles(cfg, response); err != nil {
+				log.Printf("Error writing certificate files: %v", err)
 				status.Status = statusErrorWriteCert
 				status.Message = fmt.Sprintf("Error writing certificate files: %v", err)
 				return status
