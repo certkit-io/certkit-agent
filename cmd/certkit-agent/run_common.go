@@ -39,6 +39,8 @@ func runAgent(opts runOptions) {
 
 	log.Printf("API Base: %s", config.CurrentConfig.ApiBase)
 
+	agent.InitKeystoreFromConfig()
+
 	registeredOnStartup := false
 	if agent.NeedsRegistration() {
 		if config.CurrentConfig.Bootstrap == nil || strings.TrimSpace(config.CurrentConfig.Bootstrap.RegistrationKey) == "" {

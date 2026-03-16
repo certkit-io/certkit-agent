@@ -23,6 +23,7 @@ type Config struct {
 	Bootstrap                 *BootstrapCreds            `json:"bootstrap,omitempty"`
 	Agent                     *AgentCreds                `json:"agent,omitempty"`
 	CertificateConfigurations []CertificateConfiguration `json:"certificate_configurations,omitempty"`
+	Keystore                  *KeystoreConfig            `json:"keystore,omitempty"`
 	InventorySent             bool                       `json:"inventory_sent,omitempty"`
 	Auth                      *AuthCreds                 `json:"auth,omitempty"`
 	Version                   VersionInfo                `json:"-"`
@@ -39,6 +40,11 @@ type AgentCreds struct {
 
 type AuthCreds struct {
 	KeyPair *agentCrypto.KeyPair `json:"key_pair"`
+}
+
+type KeystoreConfig struct {
+	Host      string `json:"host"`
+	CACertPEM string `json:"ca_cert_pem"`
 }
 
 type CertificateConfiguration struct {

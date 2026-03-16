@@ -28,6 +28,7 @@ type PollRequestCertificateConfig struct {
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
 	LockRequested                    bool                              `json:"lock_requested"`
+	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 }
 
 func PollForConfiguration() (*ConfigurationPollResponse, error) {
