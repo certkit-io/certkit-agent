@@ -36,9 +36,9 @@ func SynchronizeCertificates(configChanged bool, forceSync bool) []api.AgentConf
 		cfg := &config.CurrentConfig.CertificateConfigurations[i]
 		lastStatus := cfg.LastStatus
 		waitingForWindow := lastStatus == statusWaitingWindow
-		retryFetch := lastStatus == statusErrorGetCert
+		retrySync := lastStatus == statusErrorGetCert || lastStatus == statusErrorWriteCert
 
-		if !configChanged && !forceSync && !waitingForWindow && !retryFetch {
+		if !configChanged && !forceSync && !waitingForWindow && !retrySync {
 			continue
 		}
 
