@@ -58,6 +58,17 @@ func GetKeystoreClient() *http.Client {
 	return keystoreClient
 }
 
+// ClearKeystoreClient removes the keystore HTTP client and closes its idle connections.
+func ClearKeystoreClient() {
+	keystoreMu.Lock()
+	defer keystoreMu.Unlock()
+	if keystoreClient != nil {
+		keystoreClient.CloseIdleConnections()
+	}
+	keystoreClient = nil
+	keystoreHost = ""
+}
+
 // GetKeystoreHost returns the configured keystore host.
 func GetKeystoreHost() string {
 	keystoreMu.RLock()

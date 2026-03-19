@@ -69,11 +69,14 @@ func PollForConfiguration() (configChanged bool, err error) {
 	}
 
 	if response == nil {
+		// No changes from the poll response
 		return false, nil
 	}
 
 	if response.Keystore != nil {
 		updateKeystoreConfig(response.Keystore)
+	} else if config.CurrentConfig.Keystore != nil {
+		removeKeystoreConfig()
 	}
 
 	if response.LockRequested && !isLocked {
@@ -180,6 +183,15 @@ func updateKeystoreConfig(ks *config.KeystoreConfig) {
 	}
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
 		log.Printf("Error saving keystore config: %v", err)
+	}
+}
+
+func removeKeystoreConfig() {
+	log.Printf("Keystore configuration removed by server, clearing keystore client")
+	api.ClearKeystoreClient()
+	config.CurrentConfig.Keystore = nil
+	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
+		log.Printf("Error saving config after keystore removal: %v", err)
 	}
 }
 
