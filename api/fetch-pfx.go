@@ -36,9 +36,18 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 		return nil, fmt.Errorf("marshal json: %w", err)
 	}
 
+	baseURL := config.CurrentConfig.ApiBase
+	var client *http.Client
+	if ksClient := GetKeystoreClient(); ksClient != nil {
+		client = ksClient
+		baseURL = GetKeystoreHost()
+	} else {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+
 	req, err := http.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("%s/api/agent/v1/%s/fetch-pfx", config.CurrentConfig.ApiBase, config.CurrentConfig.Agent.AgentId),
+		fmt.Sprintf("%s/api/agent/v1/%s/fetch-pfx", baseURL, config.CurrentConfig.Agent.AgentId),
 		bytes.NewReader(requestBody),
 	)
 	if err != nil {
@@ -54,10 +63,6 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 
 	if err := auth.SignRequest(req, config.CurrentConfig.Agent.AgentId, config.CurrentConfig.Version.Version, privKey, time.Now()); err != nil {
 		return nil, fmt.Errorf("sign request: %w", err)
-	}
-
-	client := &http.Client{
-		Timeout: 15 * time.Second,
 	}
 
 	resp, err := client.Do(req)

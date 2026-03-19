@@ -72,6 +72,10 @@ func PollForConfiguration() (configChanged bool, err error) {
 		return false, nil
 	}
 
+	if response.Keystore != nil {
+		updateKeystoreConfig(response.Keystore)
+	}
+
 	if response.LockRequested && !isLocked {
 		if err := config.CreateLockFile(config.CurrentPath); err != nil {
 			return false, err
@@ -155,6 +159,40 @@ func SendInventory() {
 	if err := api.UpdateInventory(items); err != nil {
 		reportAgentError(fmt.Errorf("update inventory: %w", err), "", "")
 		return
+	}
+}
+
+func updateKeystoreConfig(ks *config.KeystoreConfig) {
+	current := config.CurrentConfig.Keystore
+	if current != nil && current.CACertPEM == ks.CACertPEM && current.Host == ks.Host {
+		return
+	}
+
+	log.Printf("Keystore configuration changed, rebuilding TLS client for %s", ks.Host)
+	if err := api.InitKeystoreClient(ks.Host, ks.CACertPEM); err != nil {
+		log.Printf("Error initializing keystore TLS client: %v", err)
+		return
+	}
+
+	config.CurrentConfig.Keystore = &config.KeystoreConfig{
+		Host:      ks.Host,
+		CACertPEM: ks.CACertPEM,
+	}
+	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
+		log.Printf("Error saving keystore config: %v", err)
+	}
+}
+
+// InitKeystoreFromConfig rebuilds the keystore TLS client from saved config (e.g. on restart).
+func InitKeystoreFromConfig() {
+	ks := config.CurrentConfig.Keystore
+	if ks == nil || ks.CACertPEM == "" || ks.Host == "" {
+		return
+	}
+	if err := api.InitKeystoreClient(ks.Host, ks.CACertPEM); err != nil {
+		log.Printf("Warning: failed to initialize keystore client from saved config: %v", err)
+	} else {
+		log.Printf("Keystore TLS client initialized from saved config for %s", ks.Host)
 	}
 }
 

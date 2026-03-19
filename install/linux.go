@@ -206,7 +206,6 @@ RestartSec=5
 # Hardening
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
 ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

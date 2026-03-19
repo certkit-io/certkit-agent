@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/certkit-io/certkit-agent/agent"
+	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
 )
 
@@ -101,6 +102,18 @@ func doValidate(configPath string) error {
 	}
 
 	networkStatus, networkReachable := checkAPIReachability(apiBase)
+
+	hasKeystore := cfg.Keystore != nil && strings.TrimSpace(cfg.Keystore.Host) != ""
+	keystoreStatus := ""
+	keystoreReachable := false
+	if hasKeystore {
+		if err := api.InitKeystoreClient(cfg.Keystore.Host, cfg.Keystore.CACertPEM); err != nil {
+			keystoreStatus = fmt.Sprintf("error initializing TLS client: %v", err)
+		} else {
+			keystoreStatus, keystoreReachable = checkKeystoreReachability(cfg.Keystore.Host)
+		}
+	}
+
 	serviceCheck := detectServiceStatus(serviceName)
 
 	log.Printf("Validation report:")
@@ -109,6 +122,10 @@ func doValidate(configPath string) error {
 	log.Printf("  agent id: %s", valueOr(agentID, "(not registered)"))
 	log.Printf("  certificate config count: %d", configCount)
 	log.Printf("  network reachability: %s", networkStatus)
+	if hasKeystore {
+		log.Printf("  keystore host: %s", cfg.Keystore.Host)
+		log.Printf("  keystore reachability: %s", keystoreStatus)
+	}
 	log.Printf("  signing keypair generated: %t", hasKeyPair)
 	log.Printf("  signing keypair valid: %t", keyPairValid)
 	log.Printf("  registered: %t", hasAgent)
@@ -133,6 +150,9 @@ func doValidate(configPath string) error {
 	}
 	if !networkReachable {
 		problems = append(problems, "api base is not reachable over the network")
+	}
+	if hasKeystore && !keystoreReachable {
+		problems = append(problems, "keystore is not reachable over the network")
 	}
 
 	if len(problems) > 0 {
@@ -208,6 +228,51 @@ func checkAPIReachability(apiBase string) (string, bool) {
 	_ = resp.Body.Close()
 
 	return fmt.Sprintf("reachable (tcp %s, http status %d)", address, resp.StatusCode), true
+}
+
+func checkKeystoreReachability(host string) (string, bool) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "unreachable (keystore host missing)", false
+	}
+
+	parsedURL, err := url.ParseRequestURI(host)
+	if err != nil || parsedURL.Host == "" {
+		return fmt.Sprintf("unreachable (invalid keystore host: %v)", err), false
+	}
+
+	port := parsedURL.Port()
+	if port == "" {
+		if strings.EqualFold(parsedURL.Scheme, "https") {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	address := net.JoinHostPort(parsedURL.Hostname(), port)
+
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return fmt.Sprintf("unreachable (tcp %s failed: %v)", address, err), false
+	}
+	_ = conn.Close()
+
+	client := api.GetKeystoreClient()
+	if client == nil {
+		return fmt.Sprintf("reachable (tcp %s), TLS check skipped: keystore client not initialized", address), true
+	}
+
+	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return fmt.Sprintf("reachable (tcp %s), TLS check skipped: %v", address, err), true
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("reachable (tcp %s), TLS/HTTP request failed: %v", address, err), false
+	}
+	_ = resp.Body.Close()
+
+	return fmt.Sprintf("reachable (tcp %s, https status %d)", address, resp.StatusCode), true
 }
 
 type serviceCheckResult struct {
