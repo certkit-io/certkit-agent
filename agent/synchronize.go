@@ -15,6 +15,7 @@ import (
 
 	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
+	agentCrypto "github.com/certkit-io/certkit-agent/crypto"
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
@@ -100,6 +101,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		cfg.LastStatus == statusErrorGeneral
 
 	isPfx := cfg.IsPfx
+	isJks := strings.EqualFold(cfg.ConfigType, "jks")
 	requiresKeyDestination := !cfg.AllInOne && !isPfx
 	if cfg.PemDestination == "" || (requiresKeyDestination && cfg.KeyDestination == "") {
 		log.Printf("Skipping certificate config %s: missing destination path(s)", cfg.Id)
@@ -123,7 +125,28 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	needsApply := needsFetch || configChanged || retryUpdateOnly || retryFull
 
 	if shouldFetch {
-		if isPfx {
+		if isJks {
+			log.Printf("Fetching new certificate for JKS config %s and certificate %s", cfg.Id, cfg.CertificateId)
+			response, err := api.FetchCertificate(cfg.Id, cfg.CertificateId)
+			if err != nil {
+				status.Status = statusErrorGetCert
+				status.Message = fmt.Sprintf("Error fetching certificate: %v", err)
+				log.Print(status.Message)
+				return status
+			}
+			if response == nil {
+				log.Printf("Received no-content reply from fetch for (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
+				status.Status = statusErrorGetCert
+				status.Message = "Error: no issued certificate returned"
+				return status
+			}
+
+			if err := writeJksFile(cfg, response); err != nil {
+				status.Status = statusErrorWriteCert
+				status.Message = fmt.Sprintf("Error writing JKS file: %v", err)
+				return status
+			}
+		} else if isPfx {
 			log.Printf("Fetching new PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
 			pfxResponse, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
 			if err != nil {
@@ -206,6 +229,34 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 }
 
 func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
+	if strings.EqualFold(cfg.ConfigType, "jks") {
+		jksExists, err := utils.FileExists(cfg.PemDestination)
+		if err != nil {
+			log.Printf("Failed to stat JKS file %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		if !jksExists {
+			return true, nil
+		}
+		if cfg.LatestCertificateSha1 == "" {
+			return true, nil
+		}
+		jksData, err := os.ReadFile(cfg.PemDestination)
+		if err != nil {
+			log.Printf("Failed to read JKS file %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		actualSha1, err := agentCrypto.GetCertificateSha1FromJks(jksData, cfg.KeyDestination)
+		if err != nil {
+			log.Printf("Failed to read certificate SHA1 from JKS %s: %v (forcing fetch)", cfg.PemDestination, err)
+			return true, nil
+		}
+		if !strings.EqualFold(actualSha1, cfg.LatestCertificateSha1) {
+			return true, nil
+		}
+		return false, nil
+	}
+
 	if cfg.IsPfx {
 		pfxExists, err := utils.FileExists(cfg.PemDestination)
 		if err != nil {
@@ -377,6 +428,24 @@ func writePfxFiles(cfg config.CertificateConfiguration, response *api.FetchPfxRe
 	return nil
 }
 
+func writeJksFile(cfg config.CertificateConfiguration, response *api.FetchCertificateResponse) error {
+	if response.CertificatePem == "" || response.KeyPem == "" {
+		return fmt.Errorf("missing certificate or key payload")
+	}
+
+	jksBytes, err := agentCrypto.CreateJKS(response.CertificatePem, response.KeyPem, cfg.KeyDestination, cfg.ChainDestination)
+	if err != nil {
+		return fmt.Errorf("create JKS: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.PemDestination), 0o755); err != nil {
+		return err
+	}
+
+	log.Printf("Writing JKS to %s", cfg.PemDestination)
+	return utils.WriteFileAtomic(cfg.PemDestination, jksBytes, 0o600)
+}
+
 func splitLeafAndChain(certPem string) (string, string, error) {
 	data := []byte(certPem)
 	var leaf []byte
@@ -420,10 +489,11 @@ func applyCertificatePermissions(cfg config.CertificateConfiguration) error {
 		return nil
 	}
 
+	isJks := strings.EqualFold(cfg.ConfigType, "jks")
 	paths := []string{cfg.PemDestination}
 	if cfg.IsPfx {
 		paths = append(paths, pfxPasswordFilePath(cfg.PemDestination))
-	} else if !cfg.AllInOne {
+	} else if !cfg.AllInOne && !isJks {
 		paths = append(paths, cfg.KeyDestination)
 	}
 	chainDestination := strings.TrimSpace(cfg.ChainDestination)
