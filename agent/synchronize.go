@@ -89,6 +89,9 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	if strings.EqualFold(cfg.ConfigType, "rras") || strings.EqualFold(cfg.ConfigType, "direct-access") {
 		return synchronizeRemoteAccessCertificate(cfg, configChanged)
 	}
+	if strings.EqualFold(cfg.ConfigType, "windows-cert-store") {
+		return synchronizeWindowsCertStoreCertificate(cfg, configChanged)
+	}
 
 	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
 	retryFull := cfg.LastStatus == statusPendingSync ||
