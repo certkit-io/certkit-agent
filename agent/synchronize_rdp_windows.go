@@ -4,7 +4,6 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -14,110 +13,25 @@ import (
 )
 
 func synchronizeRDPCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	status := api.AgentConfigStatusUpdate{
-		ConfigId:       cfg.Id,
-		LastStatusDate: time.Now().UTC(),
-	}
-	importedPfx := false
-	appliedCert := false
-
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
-	retryFull := cfg.LastStatus == statusPendingSync ||
-		cfg.LastStatus == statusErrorGetCert ||
-		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
-
-	if cfg.Id == "" || cfg.CertificateId == "" {
-		log.Printf("Skipping RDP config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
-		return api.AgentConfigStatusUpdate{}
-	}
-
 	role := strings.TrimSpace(cfg.PemDestination)
 	if role == "" {
-		status.Status = statusErrorGeneral
-		status.Message = "Error: missing RDP role in PemDestination"
-		return status
-	}
-
-	thumbprint := normalizeThumbprint(cfg.LatestCertificateSha1)
-
-	if thumbprint == "" {
-		status.Status = statusErrorGeneral
-		status.Message = "Error: no thumbprint found in configuration"
-		return status
-	}
-
-	needsFetch := false
-	exists, err := certInStore(thumbprint)
-	if err != nil {
-		status.Status = statusErrorGeneral
-		status.Message = fmt.Sprintf("Error checking certificate store: %v", err)
-		return status
-	}
-	needsFetch = !exists
-
-	shouldFetch := needsFetch || retryFull
-	shouldApply := needsFetch || configChanged || retryUpdateOnly || retryFull
-
-	if shouldFetch {
-		log.Printf("Fetching new RDP PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
-		resp, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
-		if err != nil {
-			status.Status = statusErrorGetCert
-			status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
-			log.Print(status.Message)
-			return status
-		}
-		if resp == nil || len(resp.PfxBytes) == 0 {
-			status.Status = statusErrorGetCert
-			status.Message = "Error: no issued PFX returned"
-			return status
-		}
-
-		if err := importPfxBytesToStore(resp.PfxBytes, resp.Password); err != nil {
-			status.Status = statusErrorWriteCert
-			status.Message = fmt.Sprintf("Error importing PFX: %v", err)
-			return status
-		}
-		importedPfx = true
-
-		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
-			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		return api.AgentConfigStatusUpdate{
+			ConfigId:       cfg.Id,
+			LastStatusDate: time.Now().UTC(),
+			Status:         statusErrorGeneral,
+			Message:        "Error: missing RDP role in PemDestination",
 		}
 	}
 
-	if shouldApply {
-		log.Printf("RDP apply requested (config=%s, cert=%s, role=%s, thumbprint=%s, needsFetch=%t, configChanged=%t, retryUpdateOnly=%t, retryFull=%t)",
-			cfg.Id, cfg.CertificateId, role, thumbprint, needsFetch, configChanged, retryUpdateOnly, retryFull)
-
-		if strings.EqualFold(role, "TerminalServices") {
-			err = applyTerminalServicesCertificate(thumbprint)
-		} else {
-			err = applyRDCertificate(thumbprint, role)
-		}
-
-		if err != nil {
-			status.Status = statusErrorUpdateCmd
-			status.Message = fmt.Sprintf("Error applying RDP certificate for role %s: %v", role, err)
-			return status
-		}
-		appliedCert = true
-	}
-
-	if importedPfx {
-		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
-			log.Printf("Warning: failed to clean up old certificates: %v", err)
-		}
-	}
-
-	if importedPfx || appliedCert {
-		log.Printf("RDP synchronization complete for (config=%s, role=%s). (imported_pfx=%t, applied_cert=%t)", cfg.Id, role, importedPfx, appliedCert)
-	} else {
-		log.Printf("RDP configuration (config=%s, role=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id, role)
-	}
-
-	status.Status = statusSynced
-	return status
+	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+		serviceName: fmt.Sprintf("RDP/%s", role),
+		applyFn: func(thumbprint string) (string, error) {
+			if strings.EqualFold(role, "TerminalServices") {
+				return "", applyTerminalServicesCertificate(thumbprint)
+			}
+			return "", applyRDCertificate(thumbprint, role)
+		},
+	})
 }
 
 func applyTerminalServicesCertificate(thumbprint string) error {
