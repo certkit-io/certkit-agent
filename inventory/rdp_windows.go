@@ -96,8 +96,8 @@ try {
 	item := api.InventoryItem{
 		Server:          "rdp",
 		ConfigPath:      "TerminalServices",
-		CertificatePath: "TerminalServices",
-		KeyPath:         "TerminalServices",
+		CertificatePath: "Terminal Services",
+		KeyPath:         "Terminal Services",
 		Domains:         joinDomains(domains),
 	}
 
