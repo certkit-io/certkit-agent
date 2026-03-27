@@ -26,7 +26,7 @@ func synchronizeRDPCertificate(cfg config.CertificateConfiguration, configChange
 	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
 		serviceName: fmt.Sprintf("RDP/%s", role),
 		applyFn: func(thumbprint string) (string, error) {
-			if strings.EqualFold(role, "TerminalServices") {
+			if strings.EqualFold(role, "TerminalServices") || strings.EqualFold(role, "Terminal Services") {
 				return "", applyTerminalServicesCertificate(thumbprint)
 			}
 			return "", applyRDCertificate(thumbprint, role)
