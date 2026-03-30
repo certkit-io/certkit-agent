@@ -12,7 +12,7 @@ import (
 )
 
 func PollAndSync(forceSync bool) {
-	configChanged, err := PollForConfiguration()
+	changedIDs, err := PollForConfiguration()
 	if err != nil {
 		reportAgentError(err, "", "")
 		return
@@ -21,7 +21,7 @@ func PollAndSync(forceSync bool) {
 		return
 	}
 
-	statuses := SynchronizeCertificates(configChanged, forceSync)
+	statuses := SynchronizeCertificates(changedIDs, forceSync)
 	if len(statuses) > 0 {
 		if err := api.UpdateConfigStatus(statuses); err != nil {
 			reportAgentError(err, "", "")
@@ -57,20 +57,20 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (configChanged bool, err error) {
+func PollForConfiguration() (changedIDs map[string]bool, err error) {
 	response, err := api.PollForConfiguration()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	isLocked, err := config.IsLocked(config.CurrentPath)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	if response == nil {
 		// No changes from the poll response
-		return false, nil
+		return nil, nil
 	}
 
 	if response.Keystore != nil {
@@ -81,39 +81,42 @@ func PollForConfiguration() (configChanged bool, err error) {
 
 	if response.LockRequested && !isLocked {
 		if err := config.CreateLockFile(config.CurrentPath); err != nil {
-			return false, err
+			return nil, err
 		}
 		log.Printf("Lock requested. Agent now locked. Lock file created at %s", config.LockFilePath(config.CurrentPath))
 
 		// Immediately re-poll once so the server sees is_locked=true in the normal loop.
 		_, err := api.PollForConfiguration()
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 	}
 
+	var changed map[string]bool
 	if isLocked {
-		changed := applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
-		if !changed {
-			return false, nil
-		}
+		changed = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
+		changed = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
-	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
-		return false, err
+	if len(changed) == 0 {
+		return nil, nil
 	}
 
-	return true, nil
+	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
+		return nil, err
+	}
+
+	return changed, nil
 }
 
-func applyLockedConfigUpdates(updated []config.CertificateConfiguration) bool {
+func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]bool {
+	changedIDs := make(map[string]bool)
 	if len(updated) == 0 || len(config.CurrentConfig.CertificateConfigurations) == 0 {
-		return false
+		return changedIDs
 	}
 
-	changed := false
 	byID := make(map[string]config.CertificateConfiguration, len(updated))
 	for _, cfg := range updated {
 		if cfg.Id == "" {
@@ -129,17 +132,46 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) bool {
 			continue
 		}
 
-		if !timePtrEqual(current.LastCertificateUpdateDate, incoming.LastCertificateUpdateDate) {
-			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
-			changed = true
-		}
 		if current.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
 			current.LatestCertificateSha1 = incoming.LatestCertificateSha1
-			changed = true
+			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
+			changedIDs[current.Id] = true
 		}
 	}
 
-	return changed
+	return changedIDs
+}
+
+func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[string]bool {
+	changedIDs := make(map[string]bool)
+	if len(incoming) == 0 {
+		return changedIDs
+	}
+
+	oldByID := make(map[string]config.CertificateConfiguration, len(old))
+	for _, cfg := range old {
+		if cfg.Id != "" {
+			oldByID[cfg.Id] = cfg
+		}
+	}
+
+	for _, inc := range incoming {
+		if inc.Id == "" {
+			continue
+		}
+		prev, existed := oldByID[inc.Id]
+		if !existed {
+			changedIDs[inc.Id] = true
+			continue
+		}
+		if !timePtrEqual(prev.LastConfigurationUpdateDate, inc.LastConfigurationUpdateDate) {
+			changedIDs[inc.Id] = true
+		} else if prev.LatestCertificateSha1 != inc.LatestCertificateSha1 {
+			changedIDs[inc.Id] = true
+		}
+	}
+
+	return changedIDs
 }
 
 func timePtrEqual(a, b *time.Time) bool {
