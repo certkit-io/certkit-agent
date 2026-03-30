@@ -7,9 +7,110 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/utils"
 )
+
+type windowsSyncConfig struct {
+	serviceName string
+	applyFn     func(thumbprint string) (string, error)
+}
+
+func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, configChanged bool, svc windowsSyncConfig) api.AgentConfigStatusUpdate {
+	status := api.AgentConfigStatusUpdate{
+		ConfigId:       cfg.Id,
+		LastStatusDate: time.Now().UTC(),
+	}
+
+	if cfg.Id == "" || cfg.CertificateId == "" {
+		log.Printf("Skipping %s config with missing ids (config_id=%s, certificate_id=%s)", svc.serviceName, cfg.Id, cfg.CertificateId)
+		return api.AgentConfigStatusUpdate{}
+	}
+
+	thumbprint := normalizeThumbprint(cfg.LatestCertificateSha1)
+	if thumbprint == "" {
+		status.Status = statusErrorGeneral
+		status.Message = "Error: no thumbprint found in configuration"
+		return status
+	}
+
+	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
+	retryFull := cfg.LastStatus == statusPendingSync ||
+		cfg.LastStatus == statusErrorGetCert ||
+		cfg.LastStatus == statusErrorWriteCert ||
+		cfg.LastStatus == statusErrorGeneral
+
+	exists, err := certInStore(thumbprint)
+	if err != nil {
+		status.Status = statusErrorGeneral
+		status.Message = fmt.Sprintf("Error checking certificate store: %v", err)
+		return status
+	}
+	needsFetch := !exists
+
+	shouldFetch := needsFetch || retryFull
+	shouldApply := needsFetch || configChanged || retryUpdateOnly || retryFull
+
+	importedPfx := false
+	if shouldFetch {
+		log.Printf("Fetching new %s PFX for config %s and certificate %s", svc.serviceName, cfg.Id, cfg.CertificateId)
+		resp, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
+		if err != nil {
+			status.Status = statusErrorGetCert
+			status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
+			log.Print(status.Message)
+			return status
+		}
+		if resp == nil || len(resp.PfxBytes) == 0 {
+			status.Status = statusErrorGetCert
+			status.Message = "Error: no issued PFX returned"
+			return status
+		}
+
+		if err := importPfxBytesToStore(resp.PfxBytes, resp.Password); err != nil {
+			status.Status = statusErrorWriteCert
+			status.Message = fmt.Sprintf("Error importing PFX: %v", err)
+			return status
+		}
+		importedPfx = true
+
+		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to set certificate friendly name: %v", err)
+		}
+	}
+
+	appliedCert := false
+	if shouldApply {
+		out, err := svc.applyFn(thumbprint)
+		if err != nil {
+			status.Status = statusErrorUpdateCmd
+			status.Message = fmt.Sprintf("Error applying %s certificate: %v", svc.serviceName, err)
+			return status
+		}
+		if out != "" {
+			status.Message = out
+		}
+		appliedCert = true
+	}
+
+	if importedPfx {
+		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
+			log.Printf("Warning: failed to clean up old certificates: %v", err)
+		}
+	}
+
+	if importedPfx || appliedCert {
+		log.Printf("%s synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", svc.serviceName, cfg.Id, importedPfx, appliedCert)
+	} else {
+		log.Printf("%s configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", svc.serviceName, cfg.Id)
+	}
+
+	status.Status = statusSynced
+	return status
+}
 
 func normalizeThumbprint(value string) string {
 	value = strings.TrimSpace(value)

@@ -6,6 +6,7 @@ func getProviders() []Provider {
 	return []Provider{
 		IISProvider{},
 		RemoteAccessProvider{},
+		RDPProvider{},
 		ApacheProvider{},
 	}
 }

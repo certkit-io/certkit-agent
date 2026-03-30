@@ -4,7 +4,6 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -14,98 +13,22 @@ import (
 )
 
 func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	status := api.AgentConfigStatusUpdate{
-		ConfigId:       cfg.Id,
-		LastStatusDate: time.Now().UTC(),
-	}
-	importedPfx := false
-	updatedBinding := false
-
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
-	retryFull := cfg.LastStatus == statusPendingSync ||
-		cfg.LastStatus == statusErrorGetCert ||
-		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
-
 	siteName, port, err := parseIISDestination(cfg.PemDestination)
 	if err != nil {
-		status.Status = statusErrorGeneral
-		status.Message = err.Error()
-		return status
-	}
-	if cfg.Id == "" || cfg.CertificateId == "" {
-		log.Printf("Skipping IIS config with missing ids (config_id=%s, certificate_id=%s)", cfg.Id, cfg.CertificateId)
-		return api.AgentConfigStatusUpdate{}
-	}
-
-	thumbprint := normalizeThumbprint(cfg.LatestCertificateSha1)
-	needsFetch := false
-	if thumbprint != "" {
-		exists, err := certInStore(thumbprint)
-		if err != nil {
-			status.Status = statusErrorGeneral
-			status.Message = fmt.Sprintf("Error checking certificate store: %v", err)
-			return status
-		}
-		needsFetch = !exists
-	}
-
-	if needsFetch || retryFull {
-		log.Printf("Fetching new PFX for config %s and certificate %s", cfg.Id, cfg.CertificateId)
-		resp, err := api.FetchPfx(cfg.Id, cfg.CertificateId)
-		if err != nil {
-			status.Status = statusErrorGetCert
-			status.Message = fmt.Sprintf("Error fetching PFX: %v", err)
-			log.Print(status.Message)
-			return status
-		}
-		if resp == nil || len(resp.PfxBytes) == 0 {
-			status.Status = statusErrorGetCert
-			status.Message = "Error: no issued PFX returned"
-			return status
-		}
-
-		if err := importPfxBytesToStore(resp.PfxBytes, resp.Password); err != nil {
-			status.Status = statusErrorWriteCert
-			status.Message = fmt.Sprintf("Error importing PFX: %v", err)
-			return status
-		}
-		importedPfx = true
-
-		if err := setCertFriendlyName(thumbprint, cfg.CertificateId); err != nil {
-			log.Printf("Warning: failed to set certificate friendly name: %v", err)
-		}
-
-		if thumbprint != "" {
-			if exists, err := certInStore(thumbprint); err == nil && !exists {
-				log.Printf("Warning: thumbprint %s not found after import", thumbprint)
-			}
+		return api.AgentConfigStatusUpdate{
+			ConfigId:       cfg.Id,
+			LastStatusDate: time.Now().UTC(),
+			Status:         statusErrorGeneral,
+			Message:        err.Error(),
 		}
 	}
 
-	if needsFetch || configChanged || retryUpdateOnly || retryFull {
-		if err := applyIISBinding(siteName, port, thumbprint); err != nil {
-			status.Status = statusErrorUpdateCmd
-			status.Message = fmt.Sprintf("Error applying IIS binding: %v", err)
-			return status
-		}
-		updatedBinding = true
-	}
-
-	if importedPfx {
-		if err := cleanupOldCertKitCerts(cfg.CertificateId); err != nil {
-			log.Printf("Warning: failed to clean up old certificates: %v", err)
-		}
-	}
-
-	if importedPfx || updatedBinding {
-		log.Printf("IIS synchronization complete for (config=%s). (imported_pfx=%t, updated_binding=%t)", cfg.Id, importedPfx, updatedBinding)
-	} else {
-		log.Printf("IIS configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", cfg.Id)
-	}
-
-	status.Status = statusSynced
-	return status
+	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+		serviceName: "IIS",
+		applyFn: func(thumbprint string) (string, error) {
+			return "", applyIISBinding(siteName, port, thumbprint)
+		},
+	})
 }
 
 func parseIISDestination(value string) (string, string, error) {
