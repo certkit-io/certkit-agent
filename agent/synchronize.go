@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -639,27 +638,3 @@ func resolveGroupId(name string) (int, error) {
 	return gid, nil
 }
 
-func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err error) {
-	if strings.TrimSpace(cfg.UpdateCmd) == "" {
-		return "", nil
-	}
-
-	log.Printf("Running update command: '%s'", cfg.UpdateCmd)
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("powershell", "-NoProfile", "-Command", cfg.UpdateCmd)
-	} else {
-		cmd = exec.Command("sh", "-c", cfg.UpdateCmd)
-	}
-
-	combinedOutput, err := cmd.CombinedOutput()
-	if len(combinedOutput) > 0 {
-		log.Printf("Update command output for '%s':\n%s", cfg.UpdateCmd, string(combinedOutput))
-	}
-	if err != nil {
-		return string(combinedOutput), fmt.Errorf("Update command failed: \n%w\n%s", err, string(combinedOutput))
-	}
-
-	return string(combinedOutput), nil
-}
