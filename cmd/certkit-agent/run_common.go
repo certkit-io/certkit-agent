@@ -11,6 +11,7 @@ import (
 
 	"github.com/certkit-io/certkit-agent/agent"
 	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/selfupdate"
 )
 
 type runOptions struct {
@@ -76,6 +77,9 @@ func runAgent(opts runOptions) {
 			return
 		case <-ticker.C:
 			agent.PollAndSync(false)
+			if selfupdate.HandleUpdateIfNeeded(opts.configPath) {
+				selfupdate.TriggerRestart()
+			}
 		}
 	}
 }

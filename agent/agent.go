@@ -8,6 +8,7 @@ import (
 	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/inventory"
+	"github.com/certkit-io/certkit-agent/selfupdate"
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
@@ -71,6 +72,15 @@ func PollForConfiguration() (changedIDs map[string]bool, err error) {
 	if response == nil {
 		// No changes from the poll response
 		return nil, nil
+	}
+
+	if response.UpdateAvailable != nil {
+		selfupdate.SignalUpdateAvailable(
+			config.CurrentConfig.Version.Version,
+			response.UpdateAvailable.Version,
+			response.UpdateAvailable.DownloadURL,
+			response.UpdateAvailable.SHA256,
+		)
 	}
 
 	if response.Keystore != nil {
