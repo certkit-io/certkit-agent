@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -129,6 +130,7 @@ func SignRequest(req *http.Request, agentID string, agentVersion string, priv ed
 	if agentVersion != "" {
 		req.Header.Set("X-Agent-Version", agentVersion)
 	}
+	req.Header.Set("X-Agent-Arch", runtime.GOARCH)
 	req.Header.Set("X-Agent-Timestamp", strconv.FormatInt(ts, 10))
 	req.Header.Set("X-Agent-Content-SHA256", bodyHash)
 
