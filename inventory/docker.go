@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 type DockerProvider struct{}
@@ -20,7 +21,7 @@ func (DockerProvider) Name() string {
 }
 
 func (DockerProvider) Collect() ([]api.InventoryItem, error) {
-	if !isContainerEnvironment() {
+	if !utils.IsContainerEnvironment() {
 		return nil, nil
 	}
 
@@ -136,25 +137,6 @@ func dockerMounts() ([]string, error) {
 	}
 
 	return mounts, nil
-}
-
-func isContainerEnvironment() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	if _, err := os.Stat("/run/.containerenv"); err == nil {
-		return true
-	}
-	data, err := os.ReadFile("/proc/1/cgroup")
-	if err != nil {
-		return false
-	}
-	content := string(data)
-	return strings.Contains(content, "docker") ||
-		strings.Contains(content, "kubepods") ||
-		strings.Contains(content, "containerd") ||
-		strings.Contains(content, "podman") ||
-		strings.Contains(content, "libpod")
 }
 
 func isDockerMountWhitelisted(mountPoint string) bool {

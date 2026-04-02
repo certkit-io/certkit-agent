@@ -29,6 +29,13 @@ type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
+	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
+}
+
+type UpdateSignal struct {
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url"`
+	SHA256      string `json:"sha256"`
 }
 
 func PollForConfiguration() (*ConfigurationPollResponse, error) {
