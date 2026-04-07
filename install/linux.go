@@ -203,9 +203,12 @@ ExecStart=%s run --config %s
 Restart=always
 RestartSec=5
 
+# The agent writes certificates to user-specified paths, which may be under /tmp.
+# PrivateTmp would redirect those writes to a systemd-private namespace directory.
+PrivateTmp=false
+
 # Hardening
 NoNewPrivileges=true
-PrivateTmp=true
 ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
