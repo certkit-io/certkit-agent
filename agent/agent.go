@@ -199,14 +199,18 @@ func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[s
 			prev.ChainDestination != inc.ChainDestination
 
 		var staleFiles []string
-		if prev.KeyDestination != "" && (inc.AllInOne || prev.KeyDestination != inc.KeyDestination) {
-			staleFiles = append(staleFiles, prev.KeyDestination)
-		}
-		if prev.ChainDestination != "" && (strings.TrimSpace(inc.ChainDestination) == "" || prev.ChainDestination != inc.ChainDestination) {
-			staleFiles = append(staleFiles, prev.ChainDestination)
-		}
-		if prev.PemDestination != "" && prev.PemDestination != inc.PemDestination {
-			staleFiles = append(staleFiles, prev.PemDestination)
+		if !inc.UsesWindowsCertStore() {
+			if !inc.IsJKS() {
+				if prev.KeyDestination != "" && (inc.AllInOne || prev.KeyDestination != inc.KeyDestination) {
+					staleFiles = append(staleFiles, prev.KeyDestination)
+				}
+				if prev.ChainDestination != "" && (strings.TrimSpace(inc.ChainDestination) == "" || prev.ChainDestination != inc.ChainDestination) {
+					staleFiles = append(staleFiles, prev.ChainDestination)
+				}
+			}
+			if prev.PemDestination != "" && prev.PemDestination != inc.PemDestination {
+				staleFiles = append(staleFiles, prev.PemDestination)
+			}
 		}
 
 		changedIDs[inc.Id] = ConfigChange{
