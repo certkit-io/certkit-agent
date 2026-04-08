@@ -119,8 +119,16 @@ func PollForConfiguration() (changedIDs map[string]ConfigChange, err error) {
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
-	if len(changed) == 0 {
-		return nil, nil
+	hasChanges := false
+	for _, c := range changed {
+		if c.Changed {
+			hasChanges = true
+			break
+		}
+	}
+
+	if !hasChanges {
+		return changed, nil
 	}
 
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {

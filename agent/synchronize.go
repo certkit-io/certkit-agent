@@ -107,7 +107,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 		cfg.LastStatus == statusErrorGeneral
 
 	isPfx := cfg.IsPfx
-	isJks := strings.EqualFold(cfg.ConfigType, "jks")
+	isJks := cfg.IsJKS()
 	requiresKeyDestination := !cfg.AllInOne && !isPfx
 	if cfg.PemDestination == "" || (requiresKeyDestination && cfg.KeyDestination == "") {
 		log.Printf("Skipping certificate config %s: missing destination path(s)", cfg.Id)
@@ -195,8 +195,8 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 				status.Message = fmt.Sprintf("Error writing certificate files: %v", err)
 				return status
 			}
-			cleanupStaleFiles(change.StaleFiles)
 		}
+		cleanupStaleFiles(change.StaleFiles)
 	}
 
 	if needsApply {
@@ -236,7 +236,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 }
 
 func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
-	if strings.EqualFold(cfg.ConfigType, "jks") {
+	if cfg.IsJKS() {
 		jksExists, err := utils.FileExists(cfg.PemDestination)
 		if err != nil {
 			log.Printf("Failed to stat JKS file %s: %v (forcing fetch)", cfg.PemDestination, err)
@@ -511,7 +511,7 @@ func applyCertificatePermissions(cfg config.CertificateConfiguration) error {
 		return nil
 	}
 
-	isJks := strings.EqualFold(cfg.ConfigType, "jks")
+	isJks := cfg.IsJKS()
 	paths := []string{cfg.PemDestination}
 	if cfg.IsPfx {
 		paths = append(paths, pfxPasswordFilePath(cfg.PemDestination))
