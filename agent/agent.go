@@ -23,7 +23,7 @@ type ConfigChange struct {
 }
 
 func PollAndSync(forceSync bool) {
-	changedIDs, err := PollForConfiguration()
+	configChanges, err := PollForConfiguration()
 	if err != nil {
 		reportAgentError(err, "", "")
 		return
@@ -32,7 +32,7 @@ func PollAndSync(forceSync bool) {
 		return
 	}
 
-	statuses := SynchronizeCertificates(changedIDs, forceSync)
+	statuses := SynchronizeCertificates(configChanges, forceSync)
 	if len(statuses) > 0 {
 		if err := api.UpdateConfigStatus(statuses); err != nil {
 			reportAgentError(err, "", "")
@@ -68,7 +68,7 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (changedIDs map[string]ConfigChange, err error) {
+func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 	response, err := api.PollForConfiguration()
 	if err != nil {
 		return nil, err
@@ -112,16 +112,15 @@ func PollForConfiguration() (changedIDs map[string]ConfigChange, err error) {
 		}
 	}
 
-	var changed map[string]ConfigChange
 	if isLocked {
-		changed = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
+		configChanges = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
-		changed = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
+		configChanges = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
 	hasChanges := false
-	for _, c := range changed {
+	for _, c := range configChanges {
 		if c.Changed {
 			hasChanges = true
 			break
@@ -129,14 +128,14 @@ func PollForConfiguration() (changedIDs map[string]ConfigChange, err error) {
 	}
 
 	if !hasChanges {
-		return changed, nil
+		return configChanges, nil
 	}
 
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
 		return nil, err
 	}
 
-	return changed, nil
+	return configChanges, nil
 }
 
 func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]ConfigChange {

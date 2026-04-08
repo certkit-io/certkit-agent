@@ -28,7 +28,7 @@ const (
 	statusErrorGeneral   = "ERROR_GENERAL"
 )
 
-func SynchronizeCertificates(changedIDs map[string]ConfigChange, forceSync bool) []api.AgentConfigStatusUpdate {
+func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bool) []api.AgentConfigStatusUpdate {
 	statuses := make([]api.AgentConfigStatusUpdate, 0, len(config.CurrentConfig.CertificateConfigurations))
 	configDirty := false
 
@@ -37,7 +37,7 @@ func SynchronizeCertificates(changedIDs map[string]ConfigChange, forceSync bool)
 		lastStatus := cfg.LastStatus
 		waitingForWindow := lastStatus == statusWaitingWindow
 		retrySync := lastStatus == statusErrorGetCert || lastStatus == statusErrorWriteCert
-		change := changedIDs[cfg.Id]
+		change := configChanges[cfg.Id]
 
 		if !change.Changed && !forceSync && !waitingForWindow && !retrySync {
 			continue
@@ -653,4 +653,3 @@ func resolveGroupId(name string) (int, error) {
 	}
 	return gid, nil
 }
-
