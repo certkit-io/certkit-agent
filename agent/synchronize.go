@@ -422,7 +422,7 @@ func cleanupStaleFiles(paths []string) {
 				log.Printf("Warning: failed to remove stale file %s: %v", p, err)
 			}
 		} else {
-			log.Printf("Removed stale file from previous format: %s", p)
+			log.Printf("Removed stale file from previous config: %s", p)
 		}
 	}
 }
