@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -169,66 +170,87 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 	return changedIDs
 }
 
-func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[string]ConfigChange {
-	changedIDs := make(map[string]ConfigChange)
-	if len(incoming) == 0 {
-		return changedIDs
+func detectChangedConfigs(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) map[string]ConfigChange {
+	configChanges := make(map[string]ConfigChange)
+	if len(incomingConfigurations) == 0 {
+		return configChanges
 	}
 
-	oldByID := make(map[string]config.CertificateConfiguration, len(old))
-	for _, cfg := range old {
+	previousByID := make(map[string]config.CertificateConfiguration, len(previousConfigurations))
+	for _, cfg := range previousConfigurations {
 		if cfg.Id != "" {
-			oldByID[cfg.Id] = cfg
+			previousByID[cfg.Id] = cfg
 		}
 	}
 
-	for _, inc := range incoming {
-		if inc.Id == "" {
+	for _, incoming := range incomingConfigurations {
+		if incoming.Id == "" {
 			continue
 		}
-		prev, existed := oldByID[inc.Id]
+		prev, existed := previousByID[incoming.Id]
 		if !existed {
-			changedIDs[inc.Id] = ConfigChange{Changed: true}
+			configChanges[incoming.Id] = ConfigChange{Changed: true}
 			continue
 		}
 
 		changed := false
-		if !timePtrEqual(prev.LastConfigurationUpdateDate, inc.LastConfigurationUpdateDate) {
+		if !timePtrEqual(prev.LastConfigurationUpdateDate, incoming.LastConfigurationUpdateDate) {
 			changed = true
-		} else if prev.LatestCertificateSha1 != inc.LatestCertificateSha1 {
+		} else if prev.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
 			changed = true
 		}
 
-		formatChanged := prev.AllInOne != inc.AllInOne ||
-			prev.IsPfx != inc.IsPfx ||
-			!strings.EqualFold(prev.ConfigType, inc.ConfigType) ||
-			prev.PemDestination != inc.PemDestination ||
-			prev.KeyDestination != inc.KeyDestination ||
-			prev.ChainDestination != inc.ChainDestination
+		formatChanged := prev.AllInOne != incoming.AllInOne ||
+			prev.IsPfx != incoming.IsPfx ||
+			!strings.EqualFold(prev.ConfigType, incoming.ConfigType) ||
+			prev.PemDestination != incoming.PemDestination ||
+			prev.KeyDestination != incoming.KeyDestination ||
+			prev.ChainDestination != incoming.ChainDestination
 
+		// All file paths the incoming config will use on disk.
+		var incomingPaths []string
+		if incoming.PemDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.PemDestination)
+		}
+		if incoming.KeyDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.KeyDestination)
+		}
+		if incoming.ChainDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.ChainDestination)
+		}
+
+		// All file paths the previous config owned on disk.
+		var prevPaths []string
+		if !prev.UsesWindowsCertStore() {
+			if prev.PemDestination != "" {
+				prevPaths = append(prevPaths, prev.PemDestination)
+			}
+			if !prev.IsJKS() {
+				if prev.KeyDestination != "" {
+					prevPaths = append(prevPaths, prev.KeyDestination)
+				}
+				if prev.ChainDestination != "" {
+					prevPaths = append(prevPaths, prev.ChainDestination)
+				}
+			}
+		}
+
+		// Stale = previously owned but not in the incoming list.
 		var staleFiles []string
-		if !inc.UsesWindowsCertStore() {
-			if !inc.IsJKS() {
-				if prev.KeyDestination != "" && (inc.AllInOne || prev.KeyDestination != inc.KeyDestination) {
-					staleFiles = append(staleFiles, prev.KeyDestination)
-				}
-				if prev.ChainDestination != "" && (inc.ChainDestination == "" || prev.ChainDestination != inc.ChainDestination) {
-					staleFiles = append(staleFiles, prev.ChainDestination)
-				}
-			}
-			if prev.PemDestination != "" && prev.PemDestination != inc.PemDestination {
-				staleFiles = append(staleFiles, prev.PemDestination)
+		for _, prevPath := range prevPaths {
+			if !slices.Contains(incomingPaths, prevPath) {
+				staleFiles = append(staleFiles, prevPath)
 			}
 		}
 
-		changedIDs[inc.Id] = ConfigChange{
+		configChanges[incoming.Id] = ConfigChange{
 			Changed:       changed,
 			FormatChanged: formatChanged,
 			StaleFiles:    staleFiles,
 		}
 	}
 
-	return changedIDs
+	return configChanges
 }
 
 func timePtrEqual(a, b *time.Time) bool {

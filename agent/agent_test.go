@@ -54,7 +54,7 @@ func TestDetectChangedConfigs(t *testing.T) {
 		{
 			name: "AllInOne switched to PEM+Key, key reused",
 			old: []config.CertificateConfiguration{
-				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.key"},
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.pem"},
 			},
 			incoming: []config.CertificateConfiguration{
 				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key"},
@@ -69,7 +69,7 @@ func TestDetectChangedConfigs(t *testing.T) {
 				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key"},
 			},
 			incoming: []config.CertificateConfiguration{
-				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.key"},
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.pem"},
 			},
 			wantChanged:       true,
 			wantFormatChanged: true,
@@ -105,7 +105,7 @@ func TestDetectChangedConfigs(t *testing.T) {
 				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key", ChainDestination: "/a.chain"},
 			},
 			incoming: []config.CertificateConfiguration{
-				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.key", ChainDestination: ""},
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.pem", ChainDestination: ""},
 			},
 			wantChanged:       true,
 			wantFormatChanged: true,
@@ -122,6 +122,111 @@ func TestDetectChangedConfigs(t *testing.T) {
 			wantChanged:       true,
 			wantFormatChanged: false,
 		},
+		{
+			name: "PEM+Key switched to PEM+Chain+Key, no stale files",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key", ChainDestination: "/a.chain"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    nil,
+		},
+		{
+			name: "key destination path changed, old key is stale",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/old.key"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/new.key"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    []string{"/old.key"},
+		},
+		{
+			name: "chain destination path changed, old chain is stale",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key", ChainDestination: "/old.chain"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key", ChainDestination: "/new.chain"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    []string{"/old.chain"},
+		},
+		{
+			name: "Windows cert store skips stale file logic",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), ConfigType: "iis", PemDestination: "OldSite:443", KeyDestination: "/old.key"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), ConfigType: "iis", PemDestination: "NewSite:443", KeyDestination: "/new.key"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    nil,
+		},
+		{
+			name: "JKS only tracks PEM destination, not key or chain",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), ConfigType: "jks", PemDestination: "/a.jks", KeyDestination: "/old.pass", ChainDestination: "/old.chain"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), ConfigType: "jks", PemDestination: "/a.jks", KeyDestination: "/new.pass", ChainDestination: "/new.chain"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    nil, // key/chain changes ignored for JKS, pem path unchanged
+		},
+		{
+			name: "JKS with PEM destination changed produces stale pem",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), ConfigType: "jks", PemDestination: "/old.jks"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), ConfigType: "jks", PemDestination: "/new.jks"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    []string{"/old.jks"},
+		},
+		{
+			name: "format changed but dates and sha1 unchanged",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), LatestCertificateSha1: "abc", AllInOne: true, PemDestination: "/a.pem", KeyDestination: "/a.pem"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), LatestCertificateSha1: "abc", AllInOne: false, PemDestination: "/a.pem", KeyDestination: "/a.key"},
+			},
+			wantChanged:       false,
+			wantFormatChanged: true,
+			wantStaleFiles:    nil, // old key dest "/a.pem" is still active as pem dest
+		},
+		{
+			name: "IsPfx toggled triggers format change",
+			old: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(baseTime), IsPfx: false, PemDestination: "/a.pem"},
+			},
+			incoming: []config.CertificateConfiguration{
+				{Id: "a", LastConfigurationUpdateDate: timePtr(newTime), IsPfx: true, PemDestination: "/a.pem"},
+			},
+			wantChanged:       true,
+			wantFormatChanged: true,
+			wantStaleFiles:    nil,
+		},
+		{
+			name: "empty incoming list returns empty map",
+			old: []config.CertificateConfiguration{
+				{Id: "a", PemDestination: "/a.pem"},
+			},
+			incoming:       []config.CertificateConfiguration{},
+			wantChanged:    false,
+			wantStaleFiles: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -133,6 +238,12 @@ func TestDetectChangedConfigs(t *testing.T) {
 			}
 
 			change, exists := result[id]
+			if len(tt.incoming) == 0 {
+				if len(result) != 0 {
+					t.Fatalf("expected empty map for empty incoming, got %d entries", len(result))
+				}
+				return
+			}
 			if !exists {
 				t.Fatalf("expected entry for config %q in result map, got none", id)
 			}
