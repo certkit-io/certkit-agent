@@ -12,7 +12,7 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+func synchronizeIISCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {
 	siteName, port, err := parseIISDestination(cfg.PemDestination)
 	if err != nil {
 		return api.AgentConfigStatusUpdate{
@@ -23,7 +23,7 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, configChange
 		}
 	}
 
-	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+	return synchronizeWindowsServiceCert(cfg, change, windowsSyncConfig{
 		serviceName: "IIS",
 		applyFn: func(thumbprint string) (string, error) {
 			return "", applyIISBinding(siteName, port, thumbprint)

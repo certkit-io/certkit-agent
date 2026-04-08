@@ -11,8 +11,8 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func synchronizeRemoteAccessCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+func synchronizeRemoteAccessCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {
+	return synchronizeWindowsServiceCert(cfg, change, windowsSyncConfig{
 		serviceName: "RemoteAccess",
 		applyFn: func(thumbprint string) (string, error) {
 			return "", applyRemoteAccessSslCertificate(thumbprint, cfg.ConfigType)

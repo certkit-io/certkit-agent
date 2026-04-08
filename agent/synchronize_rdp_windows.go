@@ -12,7 +12,7 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func synchronizeRDPCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+func synchronizeRDPCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {
 	role := strings.TrimSpace(cfg.PemDestination)
 	if role == "" {
 		return api.AgentConfigStatusUpdate{
@@ -23,7 +23,7 @@ func synchronizeRDPCertificate(cfg config.CertificateConfiguration, configChange
 		}
 	}
 
-	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+	return synchronizeWindowsServiceCert(cfg, change, windowsSyncConfig{
 		serviceName: fmt.Sprintf("RDP/%s", role),
 		applyFn: func(thumbprint string) (string, error) {
 			if strings.EqualFold(role, "TerminalServices") || strings.EqualFold(role, "Terminal Services") {

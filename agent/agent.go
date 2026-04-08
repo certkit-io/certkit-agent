@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"log"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -12,8 +14,16 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
+// ConfigChange describes what changed for a single certificate configuration
+// between the previous and incoming poll response.
+type ConfigChange struct {
+	Changed       bool     // true when the config differs from the previous version
+	FormatChanged bool     // true when format-related fields changed (AllInOne, IsPfx, ConfigType, destinations)
+	StaleFiles    []string // old file paths that should be removed after writing the new format
+}
+
 func PollAndSync(forceSync bool) {
-	changedIDs, err := PollForConfiguration()
+	configChanges, err := PollForConfiguration()
 	if err != nil {
 		reportAgentError(err, "", "")
 		return
@@ -22,7 +32,7 @@ func PollAndSync(forceSync bool) {
 		return
 	}
 
-	statuses := SynchronizeCertificates(changedIDs, forceSync)
+	statuses := SynchronizeCertificates(configChanges, forceSync)
 	if len(statuses) > 0 {
 		if err := api.UpdateConfigStatus(statuses); err != nil {
 			reportAgentError(err, "", "")
@@ -58,7 +68,7 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (changedIDs map[string]bool, err error) {
+func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 	response, err := api.PollForConfiguration()
 	if err != nil {
 		return nil, err
@@ -102,27 +112,34 @@ func PollForConfiguration() (changedIDs map[string]bool, err error) {
 		}
 	}
 
-	var changed map[string]bool
 	if isLocked {
-		changed = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
+		configChanges = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
-		changed = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
+		configChanges = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
-	if len(changed) == 0 {
-		return nil, nil
+	hasChanges := false
+	for _, c := range configChanges {
+		if c.Changed {
+			hasChanges = true
+			break
+		}
+	}
+
+	if !hasChanges {
+		return configChanges, nil
 	}
 
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
 		return nil, err
 	}
 
-	return changed, nil
+	return configChanges, nil
 }
 
-func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]bool {
-	changedIDs := make(map[string]bool)
+func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]ConfigChange {
+	changedIDs := make(map[string]ConfigChange)
 	if len(updated) == 0 || len(config.CurrentConfig.CertificateConfigurations) == 0 {
 		return changedIDs
 	}
@@ -145,43 +162,94 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 		if current.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
 			current.LatestCertificateSha1 = incoming.LatestCertificateSha1
 			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
-			changedIDs[current.Id] = true
+			changedIDs[current.Id] = ConfigChange{Changed: true}
 		}
 	}
 
 	return changedIDs
 }
 
-func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[string]bool {
-	changedIDs := make(map[string]bool)
-	if len(incoming) == 0 {
-		return changedIDs
+func detectChangedConfigs(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) map[string]ConfigChange {
+	configChanges := make(map[string]ConfigChange)
+	if len(incomingConfigurations) == 0 {
+		return configChanges
 	}
 
-	oldByID := make(map[string]config.CertificateConfiguration, len(old))
-	for _, cfg := range old {
+	previousByID := make(map[string]config.CertificateConfiguration, len(previousConfigurations))
+	for _, cfg := range previousConfigurations {
 		if cfg.Id != "" {
-			oldByID[cfg.Id] = cfg
+			previousByID[cfg.Id] = cfg
 		}
 	}
 
-	for _, inc := range incoming {
-		if inc.Id == "" {
+	for _, incoming := range incomingConfigurations {
+		if incoming.Id == "" {
 			continue
 		}
-		prev, existed := oldByID[inc.Id]
+		prev, existed := previousByID[incoming.Id]
 		if !existed {
-			changedIDs[inc.Id] = true
+			configChanges[incoming.Id] = ConfigChange{Changed: true}
 			continue
 		}
-		if !timePtrEqual(prev.LastConfigurationUpdateDate, inc.LastConfigurationUpdateDate) {
-			changedIDs[inc.Id] = true
-		} else if prev.LatestCertificateSha1 != inc.LatestCertificateSha1 {
-			changedIDs[inc.Id] = true
+
+		changed := false
+		if !timePtrEqual(prev.LastConfigurationUpdateDate, incoming.LastConfigurationUpdateDate) {
+			changed = true
+		} else if prev.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
+			changed = true
+		}
+
+		formatChanged := prev.AllInOne != incoming.AllInOne ||
+			prev.IsPfx != incoming.IsPfx ||
+			!strings.EqualFold(prev.ConfigType, incoming.ConfigType) ||
+			prev.PemDestination != incoming.PemDestination ||
+			prev.KeyDestination != incoming.KeyDestination ||
+			prev.ChainDestination != incoming.ChainDestination
+
+		// All file paths the incoming config will use on disk.
+		var incomingPaths []string
+		if incoming.PemDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.PemDestination)
+		}
+		if incoming.KeyDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.KeyDestination)
+		}
+		if incoming.ChainDestination != "" {
+			incomingPaths = append(incomingPaths, incoming.ChainDestination)
+		}
+
+		// All file paths the previous config owned on disk.
+		var prevPaths []string
+		if !prev.UsesWindowsCertStore() {
+			if prev.PemDestination != "" {
+				prevPaths = append(prevPaths, prev.PemDestination)
+			}
+			if !prev.IsJKS() {
+				if prev.KeyDestination != "" {
+					prevPaths = append(prevPaths, prev.KeyDestination)
+				}
+				if prev.ChainDestination != "" {
+					prevPaths = append(prevPaths, prev.ChainDestination)
+				}
+			}
+		}
+
+		// Stale = previously owned but not in the incoming list.
+		var staleFiles []string
+		for _, prevPath := range prevPaths {
+			if !slices.Contains(incomingPaths, prevPath) {
+				staleFiles = append(staleFiles, prevPath)
+			}
+		}
+
+		configChanges[incoming.Id] = ConfigChange{
+			Changed:       changed,
+			FormatChanged: formatChanged,
+			StaleFiles:    staleFiles,
 		}
 	}
 
-	return changedIDs
+	return configChanges
 }
 
 func timePtrEqual(a, b *time.Time) bool {

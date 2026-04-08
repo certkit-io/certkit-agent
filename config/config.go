@@ -68,6 +68,15 @@ type CertificateConfiguration struct {
 	ConfigType                  string     `json:"config_type"`
 }
 
+func (c CertificateConfiguration) UsesWindowsCertStore() bool {
+	ct := strings.ToLower(c.ConfigType)
+	return ct == "windows-cert-store" || ct == "iis" || ct == "rdp" || ct == "rras" || ct == "direct-access"
+}
+
+func (c CertificateConfiguration) IsJKS() bool {
+	return strings.EqualFold(c.ConfigType, "jks")
+}
+
 type VersionInfo struct {
 	Version string
 	Commit  string
