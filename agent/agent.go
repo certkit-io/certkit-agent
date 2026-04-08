@@ -204,7 +204,7 @@ func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[s
 				if prev.KeyDestination != "" && (inc.AllInOne || prev.KeyDestination != inc.KeyDestination) {
 					staleFiles = append(staleFiles, prev.KeyDestination)
 				}
-				if prev.ChainDestination != "" && (strings.TrimSpace(inc.ChainDestination) == "" || prev.ChainDestination != inc.ChainDestination) {
+				if prev.ChainDestination != "" && (inc.ChainDestination == "" || prev.ChainDestination != inc.ChainDestination) {
 					staleFiles = append(staleFiles, prev.ChainDestination)
 				}
 			}
