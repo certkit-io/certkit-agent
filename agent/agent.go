@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -11,6 +12,14 @@ import (
 	"github.com/certkit-io/certkit-agent/selfupdate"
 	"github.com/certkit-io/certkit-agent/utils"
 )
+
+// ConfigChange describes what changed for a single certificate configuration
+// between the previous and incoming poll response.
+type ConfigChange struct {
+	Changed       bool     // true when the config differs from the previous version
+	FormatChanged bool     // true when format-related fields changed (AllInOne, IsPfx, ConfigType, destinations)
+	StaleFiles    []string // old file paths that should be removed after writing the new format
+}
 
 func PollAndSync(forceSync bool) {
 	changedIDs, err := PollForConfiguration()
@@ -58,7 +67,7 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (changedIDs map[string]bool, err error) {
+func PollForConfiguration() (changedIDs map[string]ConfigChange, err error) {
 	response, err := api.PollForConfiguration()
 	if err != nil {
 		return nil, err
@@ -102,7 +111,7 @@ func PollForConfiguration() (changedIDs map[string]bool, err error) {
 		}
 	}
 
-	var changed map[string]bool
+	var changed map[string]ConfigChange
 	if isLocked {
 		changed = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
@@ -121,8 +130,8 @@ func PollForConfiguration() (changedIDs map[string]bool, err error) {
 	return changed, nil
 }
 
-func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]bool {
-	changedIDs := make(map[string]bool)
+func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[string]ConfigChange {
+	changedIDs := make(map[string]ConfigChange)
 	if len(updated) == 0 || len(config.CurrentConfig.CertificateConfigurations) == 0 {
 		return changedIDs
 	}
@@ -145,15 +154,15 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 		if current.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
 			current.LatestCertificateSha1 = incoming.LatestCertificateSha1
 			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
-			changedIDs[current.Id] = true
+			changedIDs[current.Id] = ConfigChange{Changed: true}
 		}
 	}
 
 	return changedIDs
 }
 
-func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[string]bool {
-	changedIDs := make(map[string]bool)
+func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[string]ConfigChange {
+	changedIDs := make(map[string]ConfigChange)
 	if len(incoming) == 0 {
 		return changedIDs
 	}
@@ -171,13 +180,39 @@ func detectChangedConfigs(old, incoming []config.CertificateConfiguration) map[s
 		}
 		prev, existed := oldByID[inc.Id]
 		if !existed {
-			changedIDs[inc.Id] = true
+			changedIDs[inc.Id] = ConfigChange{Changed: true}
 			continue
 		}
+
+		changed := false
 		if !timePtrEqual(prev.LastConfigurationUpdateDate, inc.LastConfigurationUpdateDate) {
-			changedIDs[inc.Id] = true
+			changed = true
 		} else if prev.LatestCertificateSha1 != inc.LatestCertificateSha1 {
-			changedIDs[inc.Id] = true
+			changed = true
+		}
+
+		formatChanged := prev.AllInOne != inc.AllInOne ||
+			prev.IsPfx != inc.IsPfx ||
+			!strings.EqualFold(prev.ConfigType, inc.ConfigType) ||
+			prev.PemDestination != inc.PemDestination ||
+			prev.KeyDestination != inc.KeyDestination ||
+			prev.ChainDestination != inc.ChainDestination
+
+		var staleFiles []string
+		if prev.KeyDestination != "" && (inc.AllInOne || prev.KeyDestination != inc.KeyDestination) {
+			staleFiles = append(staleFiles, prev.KeyDestination)
+		}
+		if prev.ChainDestination != "" && (strings.TrimSpace(inc.ChainDestination) == "" || prev.ChainDestination != inc.ChainDestination) {
+			staleFiles = append(staleFiles, prev.ChainDestination)
+		}
+		if prev.PemDestination != "" && prev.PemDestination != inc.PemDestination {
+			staleFiles = append(staleFiles, prev.PemDestination)
+		}
+
+		changedIDs[inc.Id] = ConfigChange{
+			Changed:       changed,
+			FormatChanged: formatChanged,
+			StaleFiles:    staleFiles,
 		}
 	}
 

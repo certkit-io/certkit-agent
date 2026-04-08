@@ -1,6 +1,10 @@
 package agent
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseFileMode(t *testing.T) {
 	tests := []struct {
@@ -43,4 +47,35 @@ func TestParseFileMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCleanupStaleFiles(t *testing.T) {
+	t.Run("removes existing files", func(t *testing.T) {
+		dir := t.TempDir()
+		f1 := filepath.Join(dir, "key.pem")
+		f2 := filepath.Join(dir, "chain.pem")
+		if err := os.WriteFile(f1, []byte("key"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f2, []byte("chain"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		cleanupStaleFiles([]string{f1, f2})
+
+		if _, err := os.Stat(f1); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed", f1)
+		}
+		if _, err := os.Stat(f2); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed", f2)
+		}
+	})
+
+	t.Run("handles empty and missing paths gracefully", func(t *testing.T) {
+		cleanupStaleFiles([]string{"", "  ", "/nonexistent/path/file.pem"})
+	})
+
+	t.Run("handles nil slice", func(t *testing.T) {
+		cleanupStaleFiles(nil)
+	})
 }

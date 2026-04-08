@@ -19,7 +19,7 @@ type windowsSyncConfig struct {
 	applyFn     func(thumbprint string) (string, error)
 }
 
-func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, configChanged bool, svc windowsSyncConfig) api.AgentConfigStatusUpdate {
+func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change ConfigChange, svc windowsSyncConfig) api.AgentConfigStatusUpdate {
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
@@ -52,7 +52,7 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, configCh
 	needsFetch := !exists
 
 	shouldFetch := needsFetch || retryFull
-	shouldApply := needsFetch || configChanged || retryUpdateOnly || retryFull
+	shouldApply := needsFetch || change.Changed || retryUpdateOnly || retryFull
 
 	importedPfx := false
 	if shouldFetch {

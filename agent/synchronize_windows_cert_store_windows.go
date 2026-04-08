@@ -12,8 +12,8 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
-	return synchronizeWindowsServiceCert(cfg, configChanged, windowsSyncConfig{
+func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {
+	return synchronizeWindowsServiceCert(cfg, change, windowsSyncConfig{
 		serviceName: "WindowsCertStore",
 		applyFn: func(thumbprint string) (string, error) {
 			if strings.TrimSpace(cfg.UpdateCmd) == "" {

@@ -28,7 +28,7 @@ const (
 	statusErrorGeneral   = "ERROR_GENERAL"
 )
 
-func SynchronizeCertificates(changedIDs map[string]bool, forceSync bool) []api.AgentConfigStatusUpdate {
+func SynchronizeCertificates(changedIDs map[string]ConfigChange, forceSync bool) []api.AgentConfigStatusUpdate {
 	statuses := make([]api.AgentConfigStatusUpdate, 0, len(config.CurrentConfig.CertificateConfigurations))
 	configDirty := false
 
@@ -37,16 +37,16 @@ func SynchronizeCertificates(changedIDs map[string]bool, forceSync bool) []api.A
 		lastStatus := cfg.LastStatus
 		waitingForWindow := lastStatus == statusWaitingWindow
 		retrySync := lastStatus == statusErrorGetCert || lastStatus == statusErrorWriteCert
-		configChanged := changedIDs[cfg.Id]
+		change := changedIDs[cfg.Id]
 
-		if !configChanged && !forceSync && !waitingForWindow && !retrySync {
+		if !change.Changed && !forceSync && !waitingForWindow && !retrySync {
 			continue
 		}
-		if configChanged {
+		if change.Changed {
 			log.Printf("Config %s changed, synchronizing", cfg.Id)
 		}
 
-		status := synchronizeCertificate(*cfg, configChanged)
+		status := synchronizeCertificate(*cfg, change)
 		if status.ConfigId != "" {
 			if status.Status != "" && status.Status != cfg.LastStatus {
 				statuses = append(statuses, status)
@@ -63,7 +63,7 @@ func SynchronizeCertificates(changedIDs map[string]bool, forceSync bool) []api.A
 	return statuses
 }
 
-func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged bool) api.AgentConfigStatusUpdate {
+func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {
 	status := api.AgentConfigStatusUpdate{
 		ConfigId:       cfg.Id,
 		LastStatusDate: time.Now().UTC(),
@@ -77,7 +77,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return status
 	}
 	if !allowed {
-		if configChanged {
+		if change.Changed {
 			log.Printf("Waiting on synchronization for config %s: outside deploy window: %q", cfg.Id, cfg.UpdateWindow)
 		}
 		status.Status = statusWaitingWindow
@@ -88,16 +88,16 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 	}
 
 	if strings.EqualFold(cfg.ConfigType, "iis") {
-		return synchronizeIISCertificate(cfg, configChanged)
+		return synchronizeIISCertificate(cfg, change)
 	}
 	if strings.EqualFold(cfg.ConfigType, "rras") || strings.EqualFold(cfg.ConfigType, "direct-access") {
-		return synchronizeRemoteAccessCertificate(cfg, configChanged)
+		return synchronizeRemoteAccessCertificate(cfg, change)
 	}
 	if strings.EqualFold(cfg.ConfigType, "rdp") {
-		return synchronizeRDPCertificate(cfg, configChanged)
+		return synchronizeRDPCertificate(cfg, change)
 	}
 	if strings.EqualFold(cfg.ConfigType, "windows-cert-store") {
-		return synchronizeWindowsCertStoreCertificate(cfg, configChanged)
+		return synchronizeWindowsCertStoreCertificate(cfg, change)
 	}
 
 	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
@@ -127,8 +127,8 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		return status
 	}
 
-	shouldFetch := needsFetch || retryFull
-	needsApply := needsFetch || configChanged || retryUpdateOnly || retryFull
+	shouldFetch := needsFetch || change.FormatChanged || retryFull
+	needsApply := needsFetch || change.Changed || retryUpdateOnly || retryFull
 
 	if shouldFetch {
 		if isJks {
@@ -195,6 +195,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 				status.Message = fmt.Sprintf("Error writing certificate files: %v", err)
 				return status
 			}
+			cleanupStaleFiles(change.StaleFiles)
 		}
 	}
 
@@ -210,7 +211,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, configChanged b
 		if strings.TrimSpace(cfg.UpdateCmd) == "" {
 			log.Print("No update command configured; skipping update command.")
 		} else {
-			if !needsFetch && configChanged {
+			if !needsFetch && change.Changed {
 				log.Print("Running update cmd due to configuration change...")
 			}
 			if (retryUpdateOnly || retryFull) && cfg.LastStatus != statusWaitingWindow {
@@ -409,6 +410,21 @@ func writeCertificateFiles(cfg config.CertificateConfiguration, response *api.Fe
 	}
 
 	return nil
+}
+
+func cleanupStaleFiles(paths []string) {
+	for _, p := range paths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		if err := os.Remove(p); err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("Warning: failed to remove stale file %s: %v", p, err)
+			}
+		} else {
+			log.Printf("Removed stale file from previous format: %s", p)
+		}
+	}
 }
 
 func writePfxFiles(cfg config.CertificateConfiguration, response *api.FetchPfxResponse) error {
