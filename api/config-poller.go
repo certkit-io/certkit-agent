@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/auth"
@@ -16,6 +17,7 @@ import (
 type ConfigurationPollRequest struct {
 	CertificateConfigurations []PollRequestCertificateConfig `json:"certificate_configurations"`
 	IsLocked                  bool                           `json:"is_locked"`
+	ForceFullSync             bool                           `json:"force_full_sync,omitempty"`
 }
 
 type PollRequestCertificateConfig struct {
@@ -25,17 +27,62 @@ type PollRequestCertificateConfig struct {
 	LatestCertificateSha1       string    `json:"latest_certificate_sha1"`
 }
 
+// UpdateVariable is a name/value pair injected into update_cmd execution.
+// Values are sensitive and must never be persisted to disk or sent back to the server.
+type UpdateVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ConfigurationPollResponse is the agent-facing decoded poll response.
+// VariablesByConfigId is memory-only — json:"-" prevents accidental serialization.
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
+	VariablesByConfigId              map[string][]UpdateVariable       `json:"-"`
+}
+
+// pollResponseConfig is the wire shape of an entry in updated_certificate_configurations.
+// It mirrors config.CertificateConfiguration but adds UpdateVariables, which never
+// reaches the disk-shaped CertificateConfiguration that gets persisted via SaveConfig.
+type pollResponseConfig struct {
+	config.CertificateConfiguration
+	UpdateVariables []UpdateVariable `json:"update_variables,omitempty"`
+}
+
+type pollResponseWire struct {
+	UpdatedCertificateConfigurations []pollResponseConfig   `json:"updated_certificate_configurations"`
+	LockRequested                    bool                   `json:"lock_requested"`
+	Keystore                         *config.KeystoreConfig `json:"keystore,omitempty"`
+	UpdateAvailable                  *UpdateSignal          `json:"update_available,omitempty"`
 }
 
 type UpdateSignal struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"download_url"`
 	SHA256      string `json:"sha256"`
+}
+
+// pendingForceFullSync starts true at process init. The first poll sends
+// force_full_sync=true; clearPendingForceFullSync is called after a successful
+// 200 response is fully decoded so subsequent polls revert to delta-sync.
+var (
+	forceFullSyncMu      sync.Mutex
+	pendingForceFullSync = true
+)
+
+func consumePendingForceFullSync() bool {
+	forceFullSyncMu.Lock()
+	defer forceFullSyncMu.Unlock()
+	return pendingForceFullSync
+}
+
+func clearPendingForceFullSync() {
+	forceFullSyncMu.Lock()
+	defer forceFullSyncMu.Unlock()
+	pendingForceFullSync = false
 }
 
 func PollForConfiguration() (*ConfigurationPollResponse, error) {
@@ -69,6 +116,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
 		IsLocked:                  isLocked,
+		ForceFullSync:             consumePendingForceFullSync(),
 	}
 
 	requestBody, err := json.Marshal(payload)
@@ -125,10 +173,27 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 
 	utils.MarkAgentAuthorized()
 
-	var pollResp ConfigurationPollResponse
-	if err := json.Unmarshal(body, &pollResp); err != nil {
+	var wire pollResponseWire
+	if err := json.Unmarshal(body, &wire); err != nil {
 		return nil, fmt.Errorf("decode poll response: %w", err)
 	}
 
-	return &pollResp, nil
+	clearPendingForceFullSync()
+
+	configs := make([]config.CertificateConfiguration, 0, len(wire.UpdatedCertificateConfigurations))
+	varsByID := make(map[string][]UpdateVariable)
+	for _, entry := range wire.UpdatedCertificateConfigurations {
+		configs = append(configs, entry.CertificateConfiguration)
+		if entry.CertificateConfiguration.Id != "" && len(entry.UpdateVariables) > 0 {
+			varsByID[entry.CertificateConfiguration.Id] = entry.UpdateVariables
+		}
+	}
+
+	return &ConfigurationPollResponse{
+		UpdatedCertificateConfigurations: configs,
+		LockRequested:                    wire.LockRequested,
+		Keystore:                         wire.Keystore,
+		UpdateAvailable:                  wire.UpdateAvailable,
+		VariablesByConfigId:              varsByID,
+	}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -20,6 +21,31 @@ type ConfigChange struct {
 	Changed       bool     // true when the config differs from the previous version
 	FormatChanged bool     // true when format-related fields changed (AllInOne, IsPfx, ConfigType, destinations)
 	StaleFiles    []string // old file paths that should be removed after writing the new format
+}
+
+// updateVarsMap holds per-config update variables in memory only. Values are
+// sensitive (passwords, tokens) and must never be persisted to disk or sent
+// back to the server. Replaced wholesale on every successful poll so revoked
+// credentials don't linger.
+var (
+	updateVarsMu  sync.Mutex
+	updateVarsMap = map[string][]api.UpdateVariable{}
+)
+
+func setUpdateVariables(byID map[string][]api.UpdateVariable) {
+	updateVarsMu.Lock()
+	defer updateVarsMu.Unlock()
+	if byID == nil {
+		updateVarsMap = map[string][]api.UpdateVariable{}
+		return
+	}
+	updateVarsMap = byID
+}
+
+func getUpdateVariables(configID string) []api.UpdateVariable {
+	updateVarsMu.Lock()
+	defer updateVarsMu.Unlock()
+	return updateVarsMap[configID]
 }
 
 func PollAndSync(forceSync bool) {
@@ -83,6 +109,8 @@ func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 		// No changes from the poll response
 		return nil, nil
 	}
+
+	setUpdateVariables(response.VariablesByConfigId)
 
 	if response.UpdateAvailable != nil {
 		selfupdate.SignalUpdateAvailable(

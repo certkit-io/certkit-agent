@@ -219,7 +219,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 			} else if (retryUpdateOnly || retryFull) && cfg.LastStatus == statusWaitingWindow {
 				log.Print("Running update command inside deploy window...")
 			}
-			if commandOutput, err := runUpdateCommand(cfg); err != nil {
+			if commandOutput, err := runUpdateCommand(cfg, getUpdateVariables(cfg.Id)); err != nil {
 				status.Status = statusErrorUpdateCmd
 				status.Message = fmt.Sprintf("Error running update command: %v", err)
 				return status
@@ -652,4 +652,24 @@ func resolveGroupId(name string) (int, error) {
 		return 0, fmt.Errorf("parse gid for group %q: %w", name, err)
 	}
 	return gid, nil
+}
+
+// isValidVariableName matches [A-Za-z_][A-Za-z0-9_]* — defense in depth so a
+// malformed variable name from the server cannot inject shell or PowerShell
+// syntax via the assignment line.
+func isValidVariableName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r == '_':
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
 )
 
@@ -246,5 +247,54 @@ func TestDetectChangedConfigs_EmptyIncomingListReturnsEmptyMap(t *testing.T) {
 	)
 	if len(result) != 0 {
 		t.Fatalf("expected empty map for empty incoming, got %d entries", len(result))
+	}
+}
+
+func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
+	t.Cleanup(func() { setUpdateVariables(nil) })
+
+	setUpdateVariables(map[string][]api.UpdateVariable{
+		"cfg-a": {{Name: "DB_PASSWORD", Value: "hunter2"}},
+		"cfg-b": {{Name: "API_TOKEN", Value: "tok"}},
+	})
+
+	if got := getUpdateVariables("cfg-a"); len(got) != 1 || got[0].Value != "hunter2" {
+		t.Fatalf("cfg-a roundtrip failed: %+v", got)
+	}
+	if got := getUpdateVariables("missing"); got != nil {
+		t.Fatalf("missing key should return nil, got %+v", got)
+	}
+
+	// Replace wholesale — cfg-a must disappear because the new map omits it.
+	setUpdateVariables(map[string][]api.UpdateVariable{
+		"cfg-b": {{Name: "API_TOKEN", Value: "rotated"}},
+	})
+	if got := getUpdateVariables("cfg-a"); got != nil {
+		t.Fatalf("cfg-a should be gone after replace, got %+v", got)
+	}
+	if got := getUpdateVariables("cfg-b"); len(got) != 1 || got[0].Value != "rotated" {
+		t.Fatalf("cfg-b should reflect rotated value, got %+v", got)
+	}
+
+	// nil clears — required so a poll response with no vars wipes the store.
+	setUpdateVariables(nil)
+	if got := getUpdateVariables("cfg-b"); got != nil {
+		t.Fatalf("nil setter should clear, got %+v", got)
+	}
+}
+
+func TestIsValidVariableName(t *testing.T) {
+	good := []string{"DB", "_X", "DB_PASSWORD", "x9", "_0", "Mixed_Case_99"}
+	bad := []string{"", "9LEAD", "FOO BAR", "FOO;rm", "FOO-BAR", "FOO$", "FOO\nBAR"}
+
+	for _, name := range good {
+		if !isValidVariableName(name) {
+			t.Errorf("expected %q to be valid", name)
+		}
+	}
+	for _, name := range bad {
+		if isValidVariableName(name) {
+			t.Errorf("expected %q to be invalid", name)
+		}
 	}
 }
