@@ -27,13 +27,6 @@ type PollRequestCertificateConfig struct {
 	LatestCertificateSha1       string    `json:"latest_certificate_sha1"`
 }
 
-// UpdateVariable is a name/value pair injected into update_cmd execution.
-// Values are sensitive and must never be persisted to disk or sent back to the server.
-type UpdateVariable struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
 // ConfigurationPollResponse is the agent-facing decoded poll response.
 // VariablesByConfigId is memory-only — json:"-" prevents accidental serialization.
 type ConfigurationPollResponse struct {
@@ -41,7 +34,7 @@ type ConfigurationPollResponse struct {
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
-	VariablesByConfigId              map[string][]UpdateVariable       `json:"-"`
+	VariablesByConfigId              map[string][]utils.UpdateVariable `json:"-"`
 }
 
 // pollResponseConfig is the wire shape of an entry in updated_certificate_configurations.
@@ -49,7 +42,7 @@ type ConfigurationPollResponse struct {
 // reaches the disk-shaped CertificateConfiguration that gets persisted via SaveConfig.
 type pollResponseConfig struct {
 	config.CertificateConfiguration
-	UpdateVariables []UpdateVariable `json:"update_variables,omitempty"`
+	UpdateVariables []utils.UpdateVariable `json:"update_variables,omitempty"`
 }
 
 type pollResponseWire struct {
@@ -181,7 +174,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	clearPendingForceFullSync()
 
 	configs := make([]config.CertificateConfiguration, 0, len(wire.UpdatedCertificateConfigurations))
-	varsByID := make(map[string][]UpdateVariable)
+	varsByID := make(map[string][]utils.UpdateVariable)
 	for _, entry := range wire.UpdatedCertificateConfigurations {
 		configs = append(configs, entry.CertificateConfiguration)
 		if entry.CertificateConfiguration.Id != "" && len(entry.UpdateVariables) > 0 {

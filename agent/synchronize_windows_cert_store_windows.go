@@ -20,7 +20,7 @@ func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration,
 				log.Print("No update command configured; skipping update command.")
 				return "", nil
 			}
-			out, err := runWindowsCertStoreUpdateCmd(thumbprint, cfg.UpdateCmd, getUpdateVariables(cfg.Id))
+			out, err := runWindowsCertStoreUpdateCmd(cfg.Id, thumbprint, cfg.UpdateCmd, getUpdateVariables(cfg.Id))
 			if err != nil {
 				return "", err
 			}
@@ -32,55 +32,26 @@ func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration,
 	})
 }
 
-func runWindowsCertStoreUpdateCmd(thumbprint, updateCmd string, vars []api.UpdateVariable) (string, error) {
+// runWindowsCertStoreUpdateCmd runs the user's update_cmd for the
+// windows-cert-store config type. The system-injected block exposes
+// $thumbprint and $certificate so the user's command can reference both.
+func runWindowsCertStoreUpdateCmd(configID, thumbprint, updateCmd string, vars []utils.UpdateVariable) (string, error) {
 	thumbprint = normalizeThumbprint(thumbprint)
 	if thumbprint == "" {
 		return "", fmt.Errorf("missing thumbprint for update command")
 	}
 
-	script, appliedVarCount := buildWindowsCertStoreScript(thumbprint, updateCmd, vars)
+	var certLoad strings.Builder
+	fmt.Fprintf(&certLoad, "$thumbprint = '%s'\n", escapePowerShellString(thumbprint))
+	certLoad.WriteString("$certificate = Get-Item \"Cert:\\LocalMachine\\My\\$thumbprint\" -ErrorAction Stop\n")
 
-	log.Printf("Running windows-cert-store update command (vars=%d)", appliedVarCount)
+	script, appliedVarCount := utils.BuildPowerShellScript(updateCmd, vars, certLoad.String())
+	if dropped := len(vars) - appliedVarCount; dropped > 0 {
+		log.Printf("Dropped %d update variables with invalid names for config %s", dropped, configID)
+	}
+
+	log.Printf("Running windows-cert-store update command for config %s (vars=%d)", configID, appliedVarCount)
 	out, err := utils.RunPowerShellViaStdin(script)
 	logPowerShellOutput("runWindowsCertStoreUpdateCmd", out)
 	return out, err
-}
-
-// buildWindowsCertStoreScript composes the PowerShell script for the
-// windows-cert-store config type:
-//  1. $ErrorActionPreference = 'Stop' fail-fast preamble.
-//  2. One `$NAME = 'VALUE'` per validated user variable.
-//  3. Cert-load convenience block exposing $thumbprint and $certificate.
-//  4. The user's update_cmd verbatim.
-//
-// Variables go before the cert-load block so the briefing's "shoved at the
-// top" intent is honored; the cert convenience is system-injected and sits
-// just before the user command so the user can reference both.
-func buildWindowsCertStoreScript(thumbprint, updateCmd string, vars []api.UpdateVariable) (string, int) {
-	var b strings.Builder
-	b.WriteString("$ErrorActionPreference = 'Stop'\n")
-
-	appliedVarCount := 0
-	for _, v := range vars {
-		if !isValidVariableName(v.Name) {
-			log.Printf("Skipping update variable with invalid name for windows-cert-store update")
-			continue
-		}
-		b.WriteString("$")
-		b.WriteString(v.Name)
-		b.WriteString(" = '")
-		b.WriteString(escapePowerShellString(v.Value))
-		b.WriteString("'\n")
-		appliedVarCount++
-	}
-
-	fmt.Fprintf(&b, "$thumbprint = '%s'\n", escapePowerShellString(thumbprint))
-	b.WriteString("$certificate = Get-Item \"Cert:\\LocalMachine\\My\\$thumbprint\" -ErrorAction Stop\n")
-
-	b.WriteString(updateCmd)
-	if !strings.HasSuffix(updateCmd, "\n") {
-		b.WriteString("\n")
-	}
-
-	return b.String(), appliedVarCount
 }

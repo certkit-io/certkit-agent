@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/certkit-io/certkit-agent/api"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 func TestBuildShellScript_NoVarsEmitsPreambleAndCommand(t *testing.T) {
-	script, count := buildShellScript("set -euo pipefail\n", "echo hi", nil, "cfg-a")
+	script, count := buildShellScript("set -euo pipefail\n", "echo hi", nil)
 
 	if count != 0 {
 		t.Fatalf("expected 0 vars applied, got %d", count)
@@ -23,7 +23,7 @@ func TestBuildShellScript_NoVarsEmitsPreambleAndCommand(t *testing.T) {
 
 func TestBuildShellScript_PreservesEmbeddedNewlinesInUpdateCmd(t *testing.T) {
 	updateCmd := "set\nfor i in 1 2 3; do\n  echo $i\ndone"
-	script, _ := buildShellScript("set -eu\n", updateCmd, nil, "cfg-a")
+	script, _ := buildShellScript("set -eu\n", updateCmd, nil)
 
 	if !strings.Contains(script, updateCmd) {
 		t.Fatalf("multiline update_cmd was modified during script build:\n%s", script)
@@ -34,10 +34,10 @@ func TestBuildShellScript_PreservesEmbeddedNewlinesInUpdateCmd(t *testing.T) {
 }
 
 func TestBuildShellScript_EscapesSingleQuotesInValue(t *testing.T) {
-	vars := []api.UpdateVariable{
+	vars := []utils.UpdateVariable{
 		{Name: "PW", Value: "it's a secret"},
 	}
-	script, count := buildShellScript("set -eu\n", "echo $PW", vars, "cfg-a")
+	script, count := buildShellScript("set -eu\n", "echo $PW", vars)
 
 	if count != 1 {
 		t.Fatalf("expected 1 var applied, got %d", count)
@@ -50,13 +50,13 @@ func TestBuildShellScript_EscapesSingleQuotesInValue(t *testing.T) {
 }
 
 func TestBuildShellScript_SkipsInvalidVariableNames(t *testing.T) {
-	vars := []api.UpdateVariable{
+	vars := []utils.UpdateVariable{
 		{Name: "GOOD", Value: "1"},
 		{Name: "BAD NAME", Value: "2"},
 		{Name: "9LEAD", Value: "3"},
 		{Name: "PW", Value: "4"},
 	}
-	script, count := buildShellScript("set -eu\n", "echo done", vars, "cfg-a")
+	script, count := buildShellScript("set -eu\n", "echo done", vars)
 
 	if count != 2 {
 		t.Fatalf("expected 2 valid vars applied, got %d", count)

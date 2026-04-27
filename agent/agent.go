@@ -29,20 +29,20 @@ type ConfigChange struct {
 // credentials don't linger.
 var (
 	updateVarsMu  sync.Mutex
-	updateVarsMap = map[string][]api.UpdateVariable{}
+	updateVarsMap = map[string][]utils.UpdateVariable{}
 )
 
-func setUpdateVariables(byID map[string][]api.UpdateVariable) {
+func setUpdateVariables(byID map[string][]utils.UpdateVariable) {
 	updateVarsMu.Lock()
 	defer updateVarsMu.Unlock()
 	if byID == nil {
-		updateVarsMap = map[string][]api.UpdateVariable{}
+		updateVarsMap = map[string][]utils.UpdateVariable{}
 		return
 	}
 	updateVarsMap = byID
 }
 
-func getUpdateVariables(configID string) []api.UpdateVariable {
+func getUpdateVariables(configID string) []utils.UpdateVariable {
 	updateVarsMu.Lock()
 	defer updateVarsMu.Unlock()
 	return updateVarsMap[configID]

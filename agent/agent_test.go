@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
+	"github.com/certkit-io/certkit-agent/utils"
 )
 
 func timePtr(t time.Time) *time.Time { return &t }
@@ -253,7 +253,7 @@ func TestDetectChangedConfigs_EmptyIncomingListReturnsEmptyMap(t *testing.T) {
 func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 	t.Cleanup(func() { setUpdateVariables(nil) })
 
-	setUpdateVariables(map[string][]api.UpdateVariable{
+	setUpdateVariables(map[string][]utils.UpdateVariable{
 		"cfg-a": {{Name: "DB_PASSWORD", Value: "hunter2"}},
 		"cfg-b": {{Name: "API_TOKEN", Value: "tok"}},
 	})
@@ -266,7 +266,7 @@ func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 	}
 
 	// Replace wholesale — cfg-a must disappear because the new map omits it.
-	setUpdateVariables(map[string][]api.UpdateVariable{
+	setUpdateVariables(map[string][]utils.UpdateVariable{
 		"cfg-b": {{Name: "API_TOKEN", Value: "rotated"}},
 	})
 	if got := getUpdateVariables("cfg-a"); got != nil {
@@ -283,18 +283,3 @@ func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 	}
 }
 
-func TestIsValidVariableName(t *testing.T) {
-	good := []string{"DB", "_X", "DB_PASSWORD", "x9", "_0", "Mixed_Case_99"}
-	bad := []string{"", "9LEAD", "FOO BAR", "FOO;rm", "FOO-BAR", "FOO$", "FOO\nBAR"}
-
-	for _, name := range good {
-		if !isValidVariableName(name) {
-			t.Errorf("expected %q to be valid", name)
-		}
-	}
-	for _, name := range bad {
-		if isValidVariableName(name) {
-			t.Errorf("expected %q to be invalid", name)
-		}
-	}
-}
