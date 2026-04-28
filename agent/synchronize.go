@@ -294,12 +294,13 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 			return true, nil
 		}
 
-		actualSha1, err := utils.GetCertificateSha1FromPfx(cfg.PemDestination, string(passwordBytes))
+		match, err := utils.DoesPfxContainSha1(cfg.PemDestination, string(passwordBytes), cfg.LatestCertificateSha1)
 		if err != nil {
-			log.Printf("Failed to read certificate SHA1 from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
+			log.Printf("Failed to read certificates from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
 			return true, nil
 		}
-		if !strings.EqualFold(actualSha1, cfg.LatestCertificateSha1) {
+		if !match {
+			log.Printf("PFX does not contain expected SHA1 %s (forcing fetch)", cfg.LatestCertificateSha1)
 			return true, nil
 		}
 
@@ -653,4 +654,3 @@ func resolveGroupId(name string) (int, error) {
 	}
 	return gid, nil
 }
-
