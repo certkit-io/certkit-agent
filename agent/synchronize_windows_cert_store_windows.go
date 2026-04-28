@@ -41,11 +41,12 @@ func runWindowsCertStoreUpdateCmd(configID, thumbprint, updateCmd string, vars [
 		return "", fmt.Errorf("missing thumbprint for update command")
 	}
 
-	var certLoad strings.Builder
-	fmt.Fprintf(&certLoad, "$thumbprint = '%s'\n", escapePowerShellString(thumbprint))
-	certLoad.WriteString("$certificate = Get-Item \"Cert:\\LocalMachine\\My\\$thumbprint\" -ErrorAction Stop\n")
+	// Windows Cert Store gets a few extra variables
+	var windowsCertStoreSpecificScriptInjection strings.Builder
+	fmt.Fprintf(&windowsCertStoreSpecificScriptInjection, "$thumbprint = '%s'\n", escapePowerShellString(thumbprint))
+	windowsCertStoreSpecificScriptInjection.WriteString("$certificate = Get-Item \"Cert:\\LocalMachine\\My\\$thumbprint\" -ErrorAction Stop\n")
 
-	script, appliedVarCount := utils.BuildPowerShellScript(updateCmd, vars, certLoad.String())
+	script, appliedVarCount := utils.BuildPowerShellScript(updateCmd, vars, windowsCertStoreSpecificScriptInjection.String())
 	if dropped := len(vars) - appliedVarCount; dropped > 0 {
 		log.Printf("Dropped %d update variables with invalid names for config %s", dropped, configID)
 	}
