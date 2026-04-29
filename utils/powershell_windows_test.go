@@ -13,7 +13,9 @@ func TestBuildPowerShellScript_NoVarsNoExtras(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("expected 0 vars applied, got %d", count)
 	}
-	want := "$ErrorActionPreference = 'Stop'\nWrite-Host hi\n"
+	want := "$ErrorActionPreference = 'Stop'\n" +
+		"Write-Host hi\n" +
+		"if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) { throw (\"Command exited with code \" + $LASTEXITCODE) }\n"
 	if script != want {
 		t.Fatalf("script mismatch:\n got: %q\nwant: %q", script, want)
 	}
