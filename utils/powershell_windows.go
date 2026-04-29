@@ -52,37 +52,39 @@ func RunPowerShell(input string) (string, error) {
 // RunPowerShellViaStdin executes the given script content via powershell.exe,
 // keeping the script (and any embedded secrets) off the command line.
 //
+// The script content is base64-encoded and piped to stdin. A short, fixed
+// bootstrapper passed via -Command reads stdin, decodes it, and invokes the
+// result as a script block inside a try/catch. The bootstrapper itself
+// contains no user data, so what shows up in Win32_Process.CommandLine is
+// only the literal bootstrapper text — secrets stay on stdin.
+//
 // Why the base64 dance? `powershell.exe -Command -` reads stdin one logical
 // statement at a time at the prompt level, so multi-line constructs like
-// `try { ... } catch { ... }`, `& { ... }`, and even setting
-// `$ErrorActionPreference = 'Stop'` followed by another command don't carry
-// over reliably — a `trap` on line 1 doesn't fire for an error on line 4,
-// and unhandled terminating errors silently exit 0.
+// `try { ... } catch { ... }` and `& { ... }` don't carry over reliably —
+// terminating errors silently exit 0. Routing the user script through
+// [scriptblock]::Create() runs it under normal script semantics where
+// terminating errors propagate up to the bootstrapper's catch.
 //
-// To get reliable error propagation while still using stdin (so secrets
-// don't end up on the powershell.exe command line where Win32_Process would
-// expose them), we send a single physical line to stdin: a try/catch
-// wrapper that decodes the base64-encoded script and invokes it as a script
-// block. Inside the script block, normal multi-line semantics apply, so
-// terminating errors bubble up to the outer catch and produce exit 1.
+// On error the catch block writes the formatted ErrorRecord directly to
+// .NET's Console.Error stream rather than calling Write-Error, which would
+// otherwise be wrapped in CLIXML when stderr is redirected to a pipe.
 //
 // Other call sites that build inline scripts from trusted, escaped values
 // should keep using RunPowerShell.
 func RunPowerShellViaStdin(scriptContent string) (string, error) {
-	encoded := base64.StdEncoding.EncodeToString([]byte(scriptContent))
-	wrapper := fmt.Sprintf(
-		`try { & ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('%s')))); exit 0 } catch { Write-Error -ErrorRecord $_; exit 1 }`+"\n",
-		encoded,
-	)
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptContent))
+
+	// Fixed bootstrapper — no user data interpolated here. Edit with care.
+	bootstrap := `try { $encoded = [Console]::In.ReadToEnd(); $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded)); & ([scriptblock]::Create($script)); exit 0 } catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }`
 
 	cmd := exec.Command(
 		"powershell.exe",
 		"-NoProfile",
 		"-NonInteractive",
 		"-ExecutionPolicy", "Bypass",
-		"-Command", "-",
+		"-Command", bootstrap,
 	)
-	cmd.Stdin = strings.NewReader(wrapper)
+	cmd.Stdin = strings.NewReader(encodedScript)
 
 	out, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(out))
