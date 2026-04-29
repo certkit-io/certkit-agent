@@ -87,14 +87,7 @@ func RunPowerShellViaStdin(scriptContent string) (string, error) {
 	cmd.Stdin = strings.NewReader(encodedScript)
 
 	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
-	if err != nil {
-		if output != "" {
-			return output, fmt.Errorf("%w: %s", err, output)
-		}
-		return "", err
-	}
-	return output, nil
+	return strings.TrimSpace(string(out)), err
 }
 
 // BuildPowerShellScript composes the inner script body that

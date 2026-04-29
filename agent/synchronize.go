@@ -221,7 +221,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 			}
 			if commandOutput, err := runUpdateCommand(cfg, getUpdateVariables(cfg.Id)); err != nil {
 				status.Status = statusErrorUpdateCmd
-				status.Message = fmt.Sprintf("Error running update command: %v", err)
+				status.Message = fmt.Sprintf("%v\n%v", err, commandOutput)
 				return status
 			} else {
 				status.Message = fmt.Sprintf("Update command output: \n%s", commandOutput)

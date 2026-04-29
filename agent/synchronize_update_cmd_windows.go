@@ -28,7 +28,7 @@ func runUpdateCommand(cfg config.CertificateConfiguration, vars []utils.UpdateVa
 		log.Printf("Update command output for config %s:\n%s", cfg.Id, out)
 	}
 	if err != nil {
-		return out, fmt.Errorf("Update command failed: \n%w\n%s", err, out)
+		return out, fmt.Errorf("update command failed: %w", err)
 	}
 
 	return out, nil
