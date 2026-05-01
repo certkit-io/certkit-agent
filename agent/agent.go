@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/api"
@@ -22,8 +23,33 @@ type ConfigChange struct {
 	StaleFiles    []string // old file paths that should be removed after writing the new format
 }
 
+// updateVarsMap holds per-config update variables in memory only. Values are
+// sensitive (passwords, tokens) and must never be persisted to disk or sent
+// back to the server. Replaced wholesale on every successful poll so revoked
+// credentials don't linger.
+var (
+	updateVarsMu  sync.Mutex
+	updateVarsMap = map[string][]utils.UpdateVariable{}
+)
+
+func setUpdateVariables(byID map[string][]utils.UpdateVariable) {
+	updateVarsMu.Lock()
+	defer updateVarsMu.Unlock()
+	if byID == nil {
+		updateVarsMap = map[string][]utils.UpdateVariable{}
+		return
+	}
+	updateVarsMap = byID
+}
+
+func getUpdateVariables(configID string) []utils.UpdateVariable {
+	updateVarsMu.Lock()
+	defer updateVarsMu.Unlock()
+	return updateVarsMap[configID]
+}
+
 func PollAndSync(forceSync bool) {
-	configChanges, err := PollForConfiguration()
+	configChanges, err := PollForConfiguration(forceSync)
 	if err != nil {
 		reportAgentError(err, "", "")
 		return
@@ -68,8 +94,8 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
-	response, err := api.PollForConfiguration()
+func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange, err error) {
+	response, err := api.PollForConfiguration(forceSync)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +109,8 @@ func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 		// No changes from the poll response
 		return nil, nil
 	}
+
+	setUpdateVariables(response.VariablesByConfigId)
 
 	if response.UpdateAvailable != nil {
 		selfupdate.SignalUpdateAvailable(
@@ -106,7 +134,7 @@ func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 		log.Printf("Lock requested. Agent now locked. Lock file created at %s", config.LockFilePath(config.CurrentPath))
 
 		// Immediately re-poll once so the server sees is_locked=true in the normal loop.
-		_, err := api.PollForConfiguration()
+		_, err := api.PollForConfiguration(false)
 		if err != nil {
 			return nil, err
 		}

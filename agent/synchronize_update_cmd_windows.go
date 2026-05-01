@@ -11,19 +11,24 @@ import (
 	"github.com/certkit-io/certkit-agent/utils"
 )
 
-func runUpdateCommand(cfg config.CertificateConfiguration) (output string, err error) {
+func runUpdateCommand(cfg config.CertificateConfiguration, vars []utils.UpdateVariable) (output string, err error) {
 	if strings.TrimSpace(cfg.UpdateCmd) == "" {
 		return "", nil
 	}
 
-	log.Printf("Running update command: '%s'", cfg.UpdateCmd)
+	script, appliedVarCount := utils.BuildPowerShellScript(cfg.UpdateCmd, vars, "")
+	if dropped := len(vars) - appliedVarCount; dropped > 0 {
+		log.Printf("Dropped %d update variables with invalid names for config %s", dropped, cfg.Id)
+	}
 
-	out, err := utils.RunPowerShell(cfg.UpdateCmd)
+	log.Printf("Running update command for config %s (vars=%d)", cfg.Id, appliedVarCount)
+
+	out, err := utils.RunPowerShellViaStdin(script)
 	if out != "" {
-		log.Printf("Update command output for '%s':\n%s", cfg.UpdateCmd, out)
+		log.Printf("Update command output for config %s:\n%s", cfg.Id, out)
 	}
 	if err != nil {
-		return out, fmt.Errorf("Update command failed: \n%w\n%s", err, out)
+		return out, fmt.Errorf("update command failed: %w", err)
 	}
 
 	return out, nil

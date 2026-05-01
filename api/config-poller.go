@@ -16,6 +16,7 @@ import (
 type ConfigurationPollRequest struct {
 	CertificateConfigurations []PollRequestCertificateConfig `json:"certificate_configurations"`
 	IsLocked                  bool                           `json:"is_locked"`
+	ForceFullSync             bool                           `json:"force_full_sync,omitempty"`
 }
 
 type PollRequestCertificateConfig struct {
@@ -25,11 +26,29 @@ type PollRequestCertificateConfig struct {
 	LatestCertificateSha1       string    `json:"latest_certificate_sha1"`
 }
 
+// ConfigurationPollResponse is the agent-facing decoded poll response.
+// VariablesByConfigId is memory-only — json:"-" prevents accidental serialization.
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
+	VariablesByConfigId              map[string][]utils.UpdateVariable `json:"-"`
+}
+
+// pollResponseConfig is the wire shape of an entry in updated_certificate_configurations.
+// It mirrors config.CertificateConfiguration but adds UpdateVariables, which never
+// reaches the disk-shaped CertificateConfiguration that gets persisted via SaveConfig.
+type pollResponseConfig struct {
+	config.CertificateConfiguration
+	UpdateVariables []utils.UpdateVariable `json:"update_variables,omitempty"`
+}
+
+type pollResponseWire struct {
+	UpdatedCertificateConfigurations []pollResponseConfig   `json:"updated_certificate_configurations"`
+	LockRequested                    bool                   `json:"lock_requested"`
+	Keystore                         *config.KeystoreConfig `json:"keystore,omitempty"`
+	UpdateAvailable                  *UpdateSignal          `json:"update_available,omitempty"`
 }
 
 type UpdateSignal struct {
@@ -38,7 +57,7 @@ type UpdateSignal struct {
 	SHA256      string `json:"sha256"`
 }
 
-func PollForConfiguration() (*ConfigurationPollResponse, error) {
+func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error) {
 	if config.CurrentConfig.Agent == nil || config.CurrentConfig.Agent.AgentId == "" {
 		return nil, fmt.Errorf("missing agent id")
 	}
@@ -69,6 +88,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
 		IsLocked:                  isLocked,
+		ForceFullSync:             forceFullSync,
 	}
 
 	requestBody, err := json.Marshal(payload)
@@ -125,10 +145,25 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 
 	utils.MarkAgentAuthorized()
 
-	var pollResp ConfigurationPollResponse
-	if err := json.Unmarshal(body, &pollResp); err != nil {
+	var wire pollResponseWire
+	if err := json.Unmarshal(body, &wire); err != nil {
 		return nil, fmt.Errorf("decode poll response: %w", err)
 	}
 
-	return &pollResp, nil
+	configs := make([]config.CertificateConfiguration, 0, len(wire.UpdatedCertificateConfigurations))
+	varsByID := make(map[string][]utils.UpdateVariable)
+	for _, entry := range wire.UpdatedCertificateConfigurations {
+		configs = append(configs, entry.CertificateConfiguration)
+		if entry.CertificateConfiguration.Id != "" && len(entry.UpdateVariables) > 0 {
+			varsByID[entry.CertificateConfiguration.Id] = entry.UpdateVariables
+		}
+	}
+
+	return &ConfigurationPollResponse{
+		UpdatedCertificateConfigurations: configs,
+		LockRequested:                    wire.LockRequested,
+		Keystore:                         wire.Keystore,
+		UpdateAvailable:                  wire.UpdateAvailable,
+		VariablesByConfigId:              varsByID,
+	}, nil
 }

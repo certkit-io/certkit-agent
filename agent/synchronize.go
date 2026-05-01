@@ -219,9 +219,9 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 			} else if (retryUpdateOnly || retryFull) && cfg.LastStatus == statusWaitingWindow {
 				log.Print("Running update command inside deploy window...")
 			}
-			if commandOutput, err := runUpdateCommand(cfg); err != nil {
+			if commandOutput, err := runUpdateCommand(cfg, getUpdateVariables(cfg.Id)); err != nil {
 				status.Status = statusErrorUpdateCmd
-				status.Message = fmt.Sprintf("Error running update command: %v", err)
+				status.Message = fmt.Sprintf("%v\n%v", err, commandOutput)
 				return status
 			} else {
 				status.Message = fmt.Sprintf("Update command output: \n%s", commandOutput)
@@ -294,12 +294,13 @@ func needsCertificateFetch(cfg config.CertificateConfiguration) (bool, error) {
 			return true, nil
 		}
 
-		actualSha1, err := utils.GetCertificateSha1FromPfx(cfg.PemDestination, string(passwordBytes))
+		match, err := utils.DoesPfxContainSha1(cfg.PemDestination, string(passwordBytes), cfg.LatestCertificateSha1)
 		if err != nil {
-			log.Printf("Failed to read certificate SHA1 from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
+			log.Printf("Failed to read certificates from PFX %s: %v (forcing fetch)", cfg.PemDestination, err)
 			return true, nil
 		}
-		if !strings.EqualFold(actualSha1, cfg.LatestCertificateSha1) {
+		if !match {
+			log.Printf("PFX does not contain expected SHA1 %s (forcing fetch)", cfg.LatestCertificateSha1)
 			return true, nil
 		}
 

@@ -32,25 +32,26 @@ func GetCertificateSha1(path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func GetCertificateSha1FromPfx(path string, password string) (string, error) {
+func DoesPfxContainSha1(path string, password string, expectedSha1 string) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 
-	return GetCertificateSha1FromPfxBytes(data, password)
+	return DoesPfxBytesContainSha1(data, password, expectedSha1)
 }
 
-func GetCertificateSha1FromPfxBytes(data []byte, password string) (string, error) {
+func DoesPfxBytesContainSha1(data []byte, password string, expectedSha1 string) (bool, error) {
 	if len(data) == 0 {
-		return "", fmt.Errorf("empty PFX payload")
+		return false, fmt.Errorf("empty PFX payload")
 	}
 
 	pemBlocks, err := pkcs12.ToPEM(data, password)
 	if err != nil {
-		return "", fmt.Errorf("decode pfx: %w", err)
+		return false, fmt.Errorf("decode pfx: %w", err)
 	}
 
+	pfxContainsAtLeastOneCertificateBlock := false
 	for _, block := range pemBlocks {
 		if block == nil || block.Type != "CERTIFICATE" {
 			continue
@@ -58,13 +59,19 @@ func GetCertificateSha1FromPfxBytes(data []byte, password string) (string, error
 
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return "", fmt.Errorf("parse certificate from pfx: %w", err)
+			return false, fmt.Errorf("parse certificate from pfx: %w", err)
 		}
+		pfxContainsAtLeastOneCertificateBlock = true
 		sum := sha1.Sum(cert.Raw)
-		return hex.EncodeToString(sum[:]), nil
+		if strings.EqualFold(hex.EncodeToString(sum[:]), expectedSha1) {
+			return true, nil
+		}
 	}
 
-	return "", fmt.Errorf("no certificate block found in PFX")
+	if !pfxContainsAtLeastOneCertificateBlock {
+		return false, fmt.Errorf("no certificate block found in PFX")
+	}
+	return false, nil
 }
 
 func firstCertificateDERFromPEM(data []byte) ([]byte, error) {
