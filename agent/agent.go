@@ -49,7 +49,7 @@ func getUpdateVariables(configID string) []utils.UpdateVariable {
 }
 
 func PollAndSync(forceSync bool) {
-	configChanges, err := PollForConfiguration()
+	configChanges, err := PollForConfiguration(forceSync)
 	if err != nil {
 		reportAgentError(err, "", "")
 		return
@@ -94,8 +94,8 @@ func DoRegistration() {
 	SendInventory()
 }
 
-func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
-	response, err := api.PollForConfiguration()
+func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange, err error) {
+	response, err := api.PollForConfiguration(forceSync)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func PollForConfiguration() (configChanges map[string]ConfigChange, err error) {
 		log.Printf("Lock requested. Agent now locked. Lock file created at %s", config.LockFilePath(config.CurrentPath))
 
 		// Immediately re-poll once so the server sees is_locked=true in the normal loop.
-		_, err := api.PollForConfiguration()
+		_, err := api.PollForConfiguration(false)
 		if err != nil {
 			return nil, err
 		}

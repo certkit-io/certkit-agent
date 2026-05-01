@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/auth"
@@ -58,27 +57,7 @@ type UpdateSignal struct {
 	SHA256      string `json:"sha256"`
 }
 
-// pendingForceFullSync starts true at process init. The first poll sends
-// force_full_sync=true; clearPendingForceFullSync is called after a successful
-// 200 response is fully decoded so subsequent polls revert to delta-sync.
-var (
-	forceFullSyncMu      sync.Mutex
-	pendingForceFullSync = true
-)
-
-func consumePendingForceFullSync() bool {
-	forceFullSyncMu.Lock()
-	defer forceFullSyncMu.Unlock()
-	return pendingForceFullSync
-}
-
-func clearPendingForceFullSync() {
-	forceFullSyncMu.Lock()
-	defer forceFullSyncMu.Unlock()
-	pendingForceFullSync = false
-}
-
-func PollForConfiguration() (*ConfigurationPollResponse, error) {
+func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error) {
 	if config.CurrentConfig.Agent == nil || config.CurrentConfig.Agent.AgentId == "" {
 		return nil, fmt.Errorf("missing agent id")
 	}
@@ -109,7 +88,7 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
 		IsLocked:                  isLocked,
-		ForceFullSync:             consumePendingForceFullSync(),
+		ForceFullSync:             forceFullSync,
 	}
 
 	requestBody, err := json.Marshal(payload)
@@ -170,8 +149,6 @@ func PollForConfiguration() (*ConfigurationPollResponse, error) {
 	if err := json.Unmarshal(body, &wire); err != nil {
 		return nil, fmt.Errorf("decode poll response: %w", err)
 	}
-
-	clearPendingForceFullSync()
 
 	configs := make([]config.CertificateConfiguration, 0, len(wire.UpdatedCertificateConfigurations))
 	varsByID := make(map[string][]utils.UpdateVariable)

@@ -27,9 +27,6 @@ func TestPollResponseDecodeKeepsVariablesOffDiskStruct(t *testing.T) {
 		"lock_requested": false
 	}`)
 
-	resetForceFullSyncForTest()
-	defer resetForceFullSyncForTest()
-
 	var wire pollResponseWire
 	if err := json.Unmarshal(body, &wire); err != nil {
 		t.Fatalf("unmarshal wire: %v", err)
@@ -58,28 +55,3 @@ func TestPollResponseDecodeKeepsVariablesOffDiskStruct(t *testing.T) {
 	}
 }
 
-func TestForceFullSyncConsumeIsNonClearing(t *testing.T) {
-	resetForceFullSyncForTest()
-	defer resetForceFullSyncForTest()
-
-	if !consumePendingForceFullSync() {
-		t.Fatal("expected first consume to return true at process start")
-	}
-	if !consumePendingForceFullSync() {
-		t.Fatal("consume should not clear — repeated calls return true until clearPendingForceFullSync()")
-	}
-
-	clearPendingForceFullSync()
-
-	if consumePendingForceFullSync() {
-		t.Fatal("after clearPendingForceFullSync, consume must return false")
-	}
-}
-
-// resetForceFullSyncForTest restores the package-level flag so tests are
-// independent regardless of execution order.
-func resetForceFullSyncForTest() {
-	forceFullSyncMu.Lock()
-	defer forceFullSyncMu.Unlock()
-	pendingForceFullSync = true
-}
