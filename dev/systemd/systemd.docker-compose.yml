@@ -6,6 +6,7 @@ services:
     hostname: "systemd-box"
     container_name: certkit-systemd-dev
     privileged: true
+    cgroup: host
     volumes:
       - ../../:/workspace
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
