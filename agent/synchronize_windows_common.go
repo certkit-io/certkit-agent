@@ -87,7 +87,18 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change C
 		out, err := svc.applyFn(thumbprint)
 		if err != nil {
 			status.Status = statusErrorUpdateCmd
-			status.Message = fmt.Sprintf("Error applying %s certificate: %v", svc.serviceName, err)
+			// Surface both like synchronize.go's runUpdateCommand path:
+			// some applyFns return a bare *exec.ExitError with the actual
+			// PowerShell error text in `out` (e.g. WindowsCertStore via
+			// RunPowerShellViaStdin), while others wrap output into `err`
+			// already (IIS / RRAS / RDP via RunPowerShell) and pass an
+			// empty `out`. Including `out` only when non-empty keeps the
+			// wrapped-err callers from duplicating their output.
+			if strings.TrimSpace(out) != "" {
+				status.Message = fmt.Sprintf("Error applying %s certificate: %v\n%s", svc.serviceName, err, out)
+			} else {
+				status.Message = fmt.Sprintf("Error applying %s certificate: %v", svc.serviceName, err)
+			}
 			return status
 		}
 		if out != "" {

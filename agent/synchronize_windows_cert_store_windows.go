@@ -21,13 +21,10 @@ func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration,
 				return "", nil
 			}
 			out, err := runWindowsCertStoreUpdateCmd(cfg.Id, thumbprint, cfg.UpdateCmd, getUpdateVariables(cfg.Id))
-			if err != nil {
-				return "", err
-			}
 			if out != "" {
-				return fmt.Sprintf("Update command output: \n%s", out), nil
+				out = fmt.Sprintf("Update command output: \n%s", out)
 			}
-			return "", nil
+			return out, err
 		},
 	})
 }
