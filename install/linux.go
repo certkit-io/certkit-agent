@@ -212,8 +212,6 @@ NoNewPrivileges=true
 ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
-LockPersonality=true
-MemoryDenyWriteExecute=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 
