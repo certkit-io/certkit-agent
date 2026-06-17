@@ -8,5 +8,6 @@ func getProviders() []Provider {
 		RemoteAccessProvider{},
 		RDPProvider{},
 		ApacheProvider{},
+		FileZillaProvider{},
 	}
 }
