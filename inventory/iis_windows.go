@@ -80,7 +80,7 @@ Import-Module WebAdministration
             }
         }
     } |
-    Select-Object -First 100
+    Select-Object -First 250
 ) | ConvertTo-Json
 `
 	out, err := utils.RunPowerShell(script)
