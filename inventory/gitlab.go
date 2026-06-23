@@ -31,37 +31,38 @@ type gitlabService struct {
 var gitlabServices = []gitlabService{
 	{"gitlab", "nginx", "external_url"},
 	{"gitlab-registry", "registry_nginx", "registry_external_url"},
-	{"gitlab-mattermost", "mattermost_nginx", "mattermost_external_url"},
 	{"gitlab-pages", "pages_nginx", "pages_external_url"},
 }
 
+const gitlabConfigFile = "/etc/gitlab/gitlab.rb"
+
 func (GitLabProvider) Collect() ([]api.InventoryItem, error) {
-	configFiles, err := expandConfigGlobs([]string{"/etc/gitlab/gitlab.rb"})
+	// Read only gitlab.rb. Anything wrong here (file absent, unreadable, or
+	// malformed) yields no items rather than failing the whole inventory run.
+	data, err := utils.ReadFileBytes(gitlabConfigFile)
 	if err != nil {
-		return nil, err
-	}
-
-	items := make([]api.InventoryItem, 0)
-	for _, path := range configFiles {
-		data, err := utils.ReadFileBytes(path)
-		if err != nil {
-			log.Printf("Inventory read error for %s: %v", path, err)
-			continue
+		if !os.IsNotExist(err) {
+			log.Printf("Inventory read error for %s: %v", gitlabConfigFile, err)
 		}
-		items = append(items, parseGitLabConfig(data, path, nodeFQDN())...)
+		return nil, nil
 	}
 
-	return items, nil
+	return parseGitLabConfig(data, gitlabConfigFile, nodeFQDN()), nil
 }
 
 func parseGitLabConfig(data []byte, path, fqdn string) []api.InventoryItem {
-	// GitLab interpolates #{node['fqdn']} (the machine FQDN, hostname -f) into its
-	// default cert paths, so resolve it for the whole file up front.
+	// GitLab/Chef interpolates #{node['fqdn']} as the machine FQDN
+	// (hostname -f), including inside explicit certificate paths.
 	lines := strings.Split(strings.ReplaceAll(string(data), "#{node['fqdn']}", fqdn), "\n")
 
-	// GitLab auto-renews its default cert via Let's Encrypt unless explicitly
-	// disabled; skip those so certkit doesn't fight `gitlab-ctl renew-le-certs`.
-	leDisabled := strings.EqualFold(gitlabValue(lines, `letsencrypt\[['"]enable['"]\]\s*=\s*(true|false)`), "false")
+	// `false` is the only value that guarantees Let's Encrypt is off. true, unset,
+	// and commented-out all mean GitLab may be auto-issuing/renewing the certs, so
+	// in those cases we skip GitLab entirely rather than fight
+	// `gitlab-ctl renew-le-certs`.
+	if !strings.EqualFold(gitlabValue(lines, `letsencrypt\[['"]enable['"]\]\s*=\s*(true|false)`), "false") {
+		log.Printf("GitLab Let's Encrypt is not explicitly disabled (letsencrypt['enable'] is not false); skipping GitLab certificates from inventory")
+		return nil
+	}
 
 	items := make([]api.InventoryItem, 0)
 	for _, svc := range gitlabServices {
@@ -73,11 +74,8 @@ func parseGitLabConfig(data []byte, path, fqdn string) []api.InventoryItem {
 		cert := gitlabValue(lines, regexp.QuoteMeta(svc.nginxKey)+`\[['"]ssl_certificate['"]\]\s*=\s*['"](.*?)['"]`)
 		key := gitlabValue(lines, regexp.QuoteMeta(svc.nginxKey)+`\[['"]ssl_certificate_key['"]\]\s*=\s*['"](.*?)['"]`)
 
+		// No explicit cert: GitLab serves a self-signed at its default path.
 		if cert == "" {
-			if !leDisabled {
-				continue // GitLab-managed via Let's Encrypt
-			}
-			// No explicit cert: GitLab serves a self-signed at its default path.
 			cert = fmt.Sprintf("/etc/gitlab/ssl/%s.crt", fqdn)
 		}
 		if key == "" {

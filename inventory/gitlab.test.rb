@@ -2,7 +2,6 @@
 ##! GitLab inventory provider. It exercises every service the provider reports:
 ##!   - gitlab            (main nginx, cert via #{node['fqdn']} interpolation)
 ##!   - gitlab-registry   (Container Registry, explicit literal cert)
-##!   - gitlab-mattermost (Mattermost, explicit literal cert)
 ##!   - gitlab-pages      (GitLab Pages, explicit literal cert)
 ##!
 ##! letsencrypt['enable'] is false here so the bundled certs are treated as
@@ -15,8 +14,8 @@ external_url 'https://gitlab.example.com'
 # certkit-manageable instead of being skipped as GitLab-managed.
 letsencrypt['enable'] = false
 
-# Main GitLab nginx vhost. The default template uses #{node['fqdn']} in the
-# filename; the provider substitutes it with the external_url host.
+# Main GitLab nginx vhost. GitLab/Chef resolves #{node['fqdn']} to the
+# machine FQDN from hostname -f, not the external_url host.
 nginx['ssl_certificate'] = "/etc/gitlab/ssl/#{node['fqdn']}.crt"
 nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/#{node['fqdn']}.key"
 
@@ -24,11 +23,6 @@ nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/#{node['fqdn']}.key"
 registry_external_url 'https://registry.example.com:5050'
 registry_nginx['ssl_certificate'] = "/etc/gitlab/ssl/registry.example.com.crt"
 registry_nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/registry.example.com.key"
-
-# Bundled Mattermost.
-mattermost_external_url 'https://mattermost.example.com'
-mattermost_nginx['ssl_certificate'] = "/etc/gitlab/ssl/mattermost.example.com.crt"
-mattermost_nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/mattermost.example.com.key"
 
 # GitLab Pages.
 pages_external_url 'https://pages.example.com'
