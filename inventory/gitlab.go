@@ -1,9 +1,10 @@
 package inventory
 
 import (
-	"errors"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -17,113 +18,104 @@ func (GitLabProvider) Name() string {
 	return "gitlab"
 }
 
+// gitlabService is a bundled GitLab service that can terminate TLS in the
+// Omnibus nginx. Each is keyed off its own external_url and
+// *_nginx['ssl_certificate*'] settings in /etc/gitlab/gitlab.rb and reported as
+// its own inventory item.
+type gitlabService struct {
+	server   string
+	nginxKey string
+	urlKey   string
+}
+
+var gitlabServices = []gitlabService{
+	{"gitlab", "nginx", "external_url"},
+	{"gitlab-registry", "registry_nginx", "registry_external_url"},
+	{"gitlab-mattermost", "mattermost_nginx", "mattermost_external_url"},
+	{"gitlab-pages", "pages_nginx", "pages_external_url"},
+}
+
 func (GitLabProvider) Collect() ([]api.InventoryItem, error) {
-	configFiles, err := expandConfigGlobs([]string{
-		"/etc/gitlab/gitlab.rb",
-	})
+	configFiles, err := expandConfigGlobs([]string{"/etc/gitlab/gitlab.rb"})
 	if err != nil {
 		return nil, err
 	}
 
 	items := make([]api.InventoryItem, 0)
 	for _, path := range configFiles {
-		certs, keys, domains, err := parseGitLabConfig(path)
+		data, err := utils.ReadFileBytes(path)
 		if err != nil {
-			log.Printf("Inventory parse error for %s: %v", path, err)
+			log.Printf("Inventory read error for %s: %v", path, err)
 			continue
 		}
-
-		pairs := len(certs)
-		if len(keys) < pairs {
-			pairs = len(keys)
-		}
-		for i := 0; i < pairs; i++ {
-			items = append(items, api.InventoryItem{
-				Server:          "gitlab",
-				ConfigPath:      path,
-				CertificatePath: certs[i],
-				KeyPath:         keys[i],
-				Domains:         joinDomains(domains),
-			})
-		}
+		items = append(items, parseGitLabConfig(data, path, nodeFQDN())...)
 	}
 
 	return items, nil
 }
 
-func parseGitLabConfig(path string) ([]string, []string, []string, error) {
-	data, err := utils.ReadFileBytes(path)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+func parseGitLabConfig(data []byte, path, fqdn string) []api.InventoryItem {
+	// GitLab interpolates #{node['fqdn']} (the machine FQDN, hostname -f) into its
+	// default cert paths, so resolve it for the whole file up front.
+	lines := strings.Split(strings.ReplaceAll(string(data), "#{node['fqdn']}", fqdn), "\n")
 
-	// Example: nginx['ssl_certificate'] = "/etc/gitlab/ssl/#{node['fqdn']}.crt"
-	//      Or: nginx['ssl_certificate'] = "/etc/gitlab/ssl/gitlab.example.com.crt"
-	reCert := regexp.MustCompile(`(?i)^\s*nginx\[['"]ssl_certificate['"]\] = ['"](.*?)['"]`)
+	// GitLab auto-renews its default cert via Let's Encrypt unless explicitly
+	// disabled; skip those so certkit doesn't fight `gitlab-ctl renew-le-certs`.
+	leDisabled := strings.EqualFold(gitlabValue(lines, `letsencrypt\[['"]enable['"]\]\s*=\s*(true|false)`), "false")
 
-	// Example: nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/#{node['fqdn']}.key"
-	//      Or: nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/gitlab.example.com.key"
-	reKey := regexp.MustCompile(`(?i)^\s*nginx\[['"]ssl_certificate_key['"]\] = ['"](.*?)['"]`)
-	
-	// Example: external_url 'https://gitlab.example.com'
-	reServer := regexp.MustCompile(`(?i)^\s*external_url\s+['"]https:\/\/(.*?)['"]`)
-
-	var certs []string
-	var keys []string
-	var domains []string
-
-	// Get the domain first, because it may be needed in the cert and key path
-	// The `external_url` line SHOULD come first, so in theory the double-loop isn't needed,
-	// but who knows maybe some user is going to copy/paste the `nginx['ssl_certificate']`
-	// and `nginx['ssl_certificate_key']` lines to the top of the file for some reason
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
+	items := make([]api.InventoryItem, 0)
+	for _, svc := range gitlabServices {
+		domain, ok := normalizeDomain(gitlabValue(lines, regexp.QuoteMeta(svc.urlKey)+`\s+['"]https://(.*?)['"]`))
+		if !ok {
+			continue // service has no https external_url
 		}
-		if match := reServer.FindStringSubmatch(line); len(match) == 2 {
-			if domain, ok := normalizeDomain(match[1]); ok {
-				domains = append(domains, domain)
-				break
+
+		cert := gitlabValue(lines, regexp.QuoteMeta(svc.nginxKey)+`\[['"]ssl_certificate['"]\]\s*=\s*['"](.*?)['"]`)
+		key := gitlabValue(lines, regexp.QuoteMeta(svc.nginxKey)+`\[['"]ssl_certificate_key['"]\]\s*=\s*['"](.*?)['"]`)
+
+		if cert == "" {
+			if !leDisabled {
+				continue // GitLab-managed via Let's Encrypt
 			}
+			// No explicit cert: GitLab serves a self-signed at its default path.
+			cert = fmt.Sprintf("/etc/gitlab/ssl/%s.crt", fqdn)
 		}
+		if key == "" {
+			key = fmt.Sprintf("/etc/gitlab/ssl/%s.key", fqdn)
+		}
+
+		items = append(items, api.InventoryItem{
+			Server:          svc.server,
+			ConfigPath:      path,
+			CertificatePath: cert,
+			KeyPath:         key,
+			Domains:         domain,
+		})
 	}
 
-	// Bail if we didn't find a domain
-	if len(domains) == 0 {
-		return certs, keys, domains, errors.New("Could not find/parse 'external_url' value")
-	}
+	return items
+}
 
-	// Now get the certs and keys
+// gitlabValue returns the first capture group of pattern across lines, anchored
+// at the start of a line and case-insensitive, or "" if nothing matches.
+func gitlabValue(lines []string, pattern string) string {
+	re := regexp.MustCompile(`(?i)^\s*` + pattern)
 	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		// Default nginx['ssl_certificate'] and nginx['ssl_certificate_key'] lines
-		// use a variable for the domain name as part of the filename, so we do a
-		// string replacement to ensure we don't return the variable placeholder
-		line := strings.ReplaceAll(line, "#{node['fqdn']}", domains[0])
-
-		if match := reCert.FindStringSubmatch(line); len(match) == 2 {
-			certs = append(certs, cleanConfigValue(match[1]))
-			continue
-		}
-		if match := reKey.FindStringSubmatch(line); len(match) == 2 {
-			keys = append(keys, cleanConfigValue(match[1]))
-			continue
+		if m := re.FindStringSubmatch(line); len(m) == 2 {
+			return m[1]
 		}
 	}
+	return ""
+}
 
-	// Default behaviour is for GitLab to use /etc/gitlab/ssl/<domain>.crt
-	// and /etc/gitlab/ssl/<domain>.key, so if we didn't parse any certs or
-	// keys above then we'll assume that's what the filenames should be
-	if len(certs) == 0 {
-		certs = append(certs, fmt.Sprintf("/etc/gitlab/ssl/%s.crt", domains[0]))
+// nodeFQDN resolves the machine FQDN the way GitLab/Chef does (node['fqdn']),
+// falling back to the kernel hostname.
+func nodeFQDN() string {
+	if out, err := exec.Command("hostname", "-f").Output(); err == nil {
+		if fqdn := strings.TrimSpace(string(out)); fqdn != "" {
+			return fqdn
+		}
 	}
-	if len(keys) == 0 {
-		keys = append(keys, fmt.Sprintf("/etc/gitlab/ssl/%s.key", domains[0]))
-	}
-
-	return certs, keys, domains, nil
+	host, _ := os.Hostname()
+	return host
 }
