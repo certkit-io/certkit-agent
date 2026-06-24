@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<filezilla>
+  <ftp_server>
+    <session>
+      <pasv>
+        <host_override>ftp.example.test:21</host_override>
+      </pasv>
+      <tls>
+        <key type="filepath"> /etc/ssl/private/filezilla.key </key>
+        <certs type="filepath"> /etc/ssl/certs/filezilla.pem </certs>
+      </tls>
+    </session>
+  </ftp_server>
+</filezilla>

@@ -30,7 +30,7 @@ type FileZillaSettingsXml struct {
 			} `xml:"tls"`
 		} `xml:"session"`
 	} `xml:"ftp_server"`
-} 
+}
 
 type FileZillaProvider struct{}
 
@@ -39,75 +39,101 @@ func (FileZillaProvider) Name() string {
 }
 
 func (FileZillaProvider) Collect() ([]api.InventoryItem, error) {
-	configFiles, err := expandConfigGlobs(fileZillaConfigGlobs())
+	path, found := firstFileZillaConfigPath()
+	if !found {
+		return nil, nil
+	}
+
+	cert, key, domains, err := parseFileZillaConfig(path)
 	if err != nil {
-		return nil, err
+		log.Printf("Inventory parse error for %s: %v", path, err)
+		return nil, nil
+	}
+	if cert == "" || key == "" {
+		return nil, nil
 	}
 
-	items := make([]api.InventoryItem, 0)
-	for _, path := range configFiles {
-		certs, keys, domains, err := parseFileZillaConfig(path)
-		if err != nil {
-			log.Printf("Inventory parse error for %s: %v", path, err)
-			continue
-		}
-
-		pairs := len(certs)
-		if len(keys) < pairs {
-			pairs = len(keys)
-		}
-		for i := 0; i < pairs; i++ {
-			items = append(items, api.InventoryItem{
-				Server:          "filezilla",
-				ConfigPath:      path,
-				CertificatePath: certs[i],
-				KeyPath:         keys[i],
-				Domains:         joinDomains(domains),
-			})
-		}
-	}
-
-	return items, nil
+	return []api.InventoryItem{
+		{
+			Server:          "filezilla",
+			ConfigPath:      path,
+			CertificatePath: cert,
+			KeyPath:         key,
+			Domains:         joinDomains(domains),
+		},
+	}, nil
 }
 
-func fileZillaConfigGlobs() []string {
-	if runtime.GOOS == "windows" {
-		return []string{
-			`C:\ProgramData\filezilla-server\settings.xml`,
-		}
-	}
-
-	return []string{
+func firstFileZillaConfigPath() (string, bool) {
+	paths := []string{
 		"/opt/filezilla-server/etc/settings.xml",
+		"/etc/filezilla-server/settings.xml",
+		"/usr/local/etc/filezilla-server/settings.xml",
+		"/var/lib/filezilla-server/settings.xml",
+		"/root/.config/filezilla-server/settings.xml",
 	}
+	if runtime.GOOS == "windows" {
+		paths = []string{
+			`C:\ProgramData\filezilla-server\settings.xml`,
+			`C:\Windows\System32\config\systemprofile\AppData\Local\filezilla-server\settings.xml`,
+			`C:\Windows\SysWOW64\config\systemprofile\AppData\Local\filezilla-server\settings.xml`,
+			`C:\Program Files\FileZilla Server\settings.xml`,
+			`C:\Program Files (x86)\FileZilla Server\settings.xml`,
+		}
+	}
+
+	for _, path := range paths {
+		exists, err := utils.FileExists(path)
+		if err != nil {
+			log.Printf("Inventory FileZilla path check error for %s: %v", path, err)
+			return "", false
+		}
+		if exists {
+			return path, true
+		}
+	}
+	return "", false
 }
 
-func parseFileZillaConfig(path string) ([]string, []string, []string, error) {
+func parseFileZillaConfig(path string) (cert string, key string, domains []string, err error) {
 	data, err := utils.ReadFileBytes(path)
 	if err != nil {
-		return nil, nil, nil, err
+		return "", "", nil, err
 	}
 
 	var settings FileZillaSettingsXml
 	err = xml.Unmarshal(data, &settings)
 	if err != nil {
-		return nil, nil, nil, err
+		return "", "", nil, err
 	}
 
-	if settings.FtpServer.Session.Tls.Certs.Type != "filepath" {
-		return nil, nil, nil, errors.New("TLS certificate must be set to 'Path to file'")
+	if settings.FtpServer.Session.Tls.Certs.Text != "" || settings.FtpServer.Session.Tls.Key.Text != "" {
+		if !fileZillaPathSettingIsFile(settings.FtpServer.Session.Tls.Certs.Type) {
+			return "", "", nil, errors.New("TLS certificate is not a file path")
+		}
+		if !fileZillaPathSettingIsFile(settings.FtpServer.Session.Tls.Key.Type) {
+			return "", "", nil, errors.New("TLS private key is not a file path")
+		}
+		cert = cleanConfigValue(settings.FtpServer.Session.Tls.Certs.Text)
+		key = cleanConfigValue(settings.FtpServer.Session.Tls.Key.Text)
 	}
-	if settings.FtpServer.Session.Tls.Key.Type != "filepath" {
-		return nil, nil, nil, errors.New("TLS private key must be set to 'Path to file'")
+	appendFileZillaDomains(&domains, settings.FtpServer.Session.Pasv.HostOverride)
+
+	return cert, key, domains, nil
+}
+
+func fileZillaPathSettingIsFile(settingType string) bool {
+	settingType = strings.TrimSpace(settingType)
+	return settingType == "" || strings.EqualFold(settingType, "filepath")
+}
+
+func appendFileZillaDomains(domains *[]string, value string) {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\r' || r == '\n'
+	})
+	for _, field := range fields {
+		if domain, ok := normalizeDomain(field); ok {
+			*domains = append(*domains, domain)
+		}
 	}
-
-	var certs []string
-	var keys []string
-	var domains []string
-
-	certs = append(certs, strings.TrimSpace(settings.FtpServer.Session.Tls.Certs.Text))
-	keys = append(keys, strings.TrimSpace(settings.FtpServer.Session.Tls.Key.Text))
-	domains = append(domains, strings.TrimSpace(settings.FtpServer.Session.Pasv.HostOverride))
-
-	return certs, keys, domains, nil
 }
