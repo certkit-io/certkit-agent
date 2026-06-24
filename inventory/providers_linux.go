@@ -9,5 +9,6 @@ func getProviders() []Provider {
 		LitespeedProvider{},
 		HaproxyProvider{},
 		DockerProvider{},
+		GitLabProvider{},
 	}
 }
