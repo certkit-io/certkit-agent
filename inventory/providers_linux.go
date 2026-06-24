@@ -10,5 +10,6 @@ func getProviders() []Provider {
 		HaproxyProvider{},
 		DockerProvider{},
 		FileZillaProvider{},
+		GitLabProvider{},
 	}
 }
