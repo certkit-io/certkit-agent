@@ -23,32 +23,48 @@ func (IISProvider) Collect() ([]api.InventoryItem, error) {
 	if !ok || len(bindings) == 0 {
 		return nil, nil
 	}
+	return iisInventoryItems(bindings), nil
+}
 
+func iisInventoryItems(bindings []iisBinding) []api.InventoryItem {
 	items := make([]api.InventoryItem, 0, len(bindings))
 	for _, binding := range bindings {
+		host := strings.TrimSpace(binding.Host)
+
 		domains := make([]string, 0, 1)
-		if value, ok := normalizeDomain(binding.Host); ok {
+		if value, ok := normalizeDomain(host); ok {
 			domains = append(domains, value)
 		}
 
-		pemPath := fmt.Sprintf("%s:%d", binding.Site, binding.Port)
+		// For SNI bindings the destination is site:port:host so the deploy side can
+		// target the exact binding. That three-part shape is the agent's only SNI
+		// signal, since config_path and domains are not sent back from the CertKit
+		// app. Non-SNI bindings stay site:port even when they carry a host header.
+		destination := fmt.Sprintf("%s:%s", binding.Site, binding.Port)
+		if binding.SslFlags&iisSslFlagSNI != 0 && host != "" {
+			destination = fmt.Sprintf("%s:%s:%s", binding.Site, binding.Port, host)
+		}
 
 		items = append(items, api.InventoryItem{
 			Server:          "iis",
-			ConfigPath:      "IIS:\\SslBindings",
-			CertificatePath: pemPath,
-			KeyPath:         pemPath,
+			ConfigPath:      fmt.Sprintf("IIS:\\Sites|SslFlags=%d", binding.SslFlags),
+			CertificatePath: destination,
+			KeyPath:         destination,
 			Domains:         joinDomains(domains),
 		})
 	}
 
-	return items, nil
+	return items
 }
 
+// IIS sslFlags bit (0x1) marking a binding as SNI-enabled.
+const iisSslFlagSNI = 1
+
 type iisBinding struct {
-	Site string `json:"Site"`
-	Port int    `json:"Port"`
-	Host string `json:"Host"`
+	Site     string `json:"Site"`
+	Port     string `json:"Port"`
+	Host     string `json:"Host"`
+	SslFlags int    `json:"SslFlags"`
 }
 
 type iisBindingResult struct {
@@ -67,16 +83,20 @@ if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
 Import-Module WebAdministration
 
 ,@(
-    Get-ChildItem IIS:\SslBindings |
+    Get-ChildItem IIS:\Sites |
     ForEach-Object {
-        $port = $_.Port
-        $hostName = $_.Host
+        $site = $_
 
-        foreach ($s in $_.Sites) {
-            [pscustomobject]@{
-                Site = $s.Value
-                Port = $port
-                Host = $hostName
+        foreach ($binding in $site.Bindings.Collection) {
+            if ($binding.protocol -eq 'https') {
+                $parts = $binding.bindingInformation -split ':', 3
+
+                [pscustomobject]@{
+                    Site     = $site.Name
+                    Port     = $parts[1]
+                    Host     = $parts[2]
+                    SslFlags = [int]$binding.sslFlags
+                }
             }
         }
     } |
@@ -89,17 +109,21 @@ Import-Module WebAdministration
 		return nil, false
 	}
 
-	raw := strings.TrimSpace(out)
+	return parseIISBindingsJSON(out), true
+}
 
+// parseIISBindingsJSON decodes the {"value":[...],"Count":N} payload produced by
+// the inventory PowerShell. A decode failure is logged and yields no bindings
+// rather than failing the whole inventory run.
+func parseIISBindingsJSON(raw string) []iisBinding {
+	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "null" {
-		return nil, true
+		return nil
 	}
 
 	var result iisBindingResult
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		log.Printf("IIS SSL bindings JSON parse failed: %v", err)
 	}
-	bindings := result.Value
-
-	return bindings, true
+	return result.Value
 }
