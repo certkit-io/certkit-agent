@@ -49,7 +49,7 @@ The goal is a codebase that is approachable and reliable. **Simple, procedural, 
 
 - **Windows**
   - Uses `main_windows.go` for service installation and service execution.
-  - IIS synchronization uses Windows certificate store and `IIS:\SslBindings` via PowerShell.
+  - IIS inventory enumerates HTTPS bindings from `IIS:\Sites` (capturing each binding's `sslFlags`). SNI bindings (sslFlags bit `0x1`) are recorded as `site:port:host` destinations, non-SNI as `site:port` — the three-part shape is the agent's only SNI signal on deploy (config_path/domains are not sent back from the app). On deploy a three-part destination makes the binding lookup host-scoped (`-HostHeader`); sslFlags are never modified.
   - PowerShell execution is centralized in `utils/powershell_windows.go`.
 - **Linux**
   - Uses systemd installer in `main_linux.go` and `scripts/install.sh`.
