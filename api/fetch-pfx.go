@@ -42,7 +42,7 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 		client = ksClient
 		baseURL = GetKeystoreHost()
 	} else {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = newHTTPClient()
 	}
 
 	req, err := http.NewRequest(
@@ -65,9 +65,9 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 		return nil, fmt.Errorf("sign request: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := doRequest(client, req)
 	if err != nil {
-		return nil, fmt.Errorf("http do: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 

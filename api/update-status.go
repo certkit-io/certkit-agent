@@ -61,13 +61,9 @@ func UpdateConfigStatus(updates []AgentConfigStatusUpdate) error {
 		return fmt.Errorf("sign request: %w", err)
 	}
 
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := doRequest(newHTTPClient(), req)
 	if err != nil {
-		return fmt.Errorf("http do: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
 

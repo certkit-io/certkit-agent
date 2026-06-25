@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 )
 
 var (
@@ -38,10 +37,8 @@ func InitKeystoreClient(host string, caCertPEM string) error {
 	}
 
 	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
-		},
+		Timeout:   requestTimeout,
+		Transport: newAPITransport(tlsCfg),
 	}
 
 	keystoreMu.Lock()
