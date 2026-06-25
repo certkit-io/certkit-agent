@@ -26,6 +26,11 @@ func Collect() ([]api.InventoryItem, error) {
 		}
 		if len(providerItems) == 0 {
 			log.Printf("[Auto-Discovery] (%s) - not found on this server. Skipping...", provider.Name())
+		} else {
+			for _, item := range providerItems {
+				log.Printf("[Auto-Discovery] (%s) - Found software: (config=%s, cert=%s, key=%s, domains=%s)",
+					provider.Name(), item.ConfigPath, item.CertificatePath, item.KeyPath, item.Domains)
+			}
 		}
 		items = append(items, providerItems...)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -34,8 +33,6 @@ func UpdateInventory(items []InventoryItem) error {
 	payload := InventoryUpdate{
 		Items: items,
 	}
-
-	log.Printf("Auto-discovered software: %v", payload)
 
 	requestBody, err := json.Marshal(payload)
 	if err != nil {
