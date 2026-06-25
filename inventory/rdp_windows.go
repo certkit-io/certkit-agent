@@ -32,6 +32,7 @@ func (RDPProvider) Collect() ([]api.InventoryItem, error) {
 }
 
 type tsResult struct {
+	Enabled    bool   `json:"Enabled"`
 	HasCert    bool   `json:"HasCert"`
 	Thumbprint string `json:"Thumbprint"`
 	Domain     string `json:"Domain"`
@@ -40,6 +41,16 @@ type tsResult struct {
 func collectTerminalServices() ([]api.InventoryItem, bool) {
 	script := `
 try {
+    $tss = Get-CimInstance -Namespace root/cimv2/TerminalServices -ClassName Win32_TerminalServiceSetting -ErrorAction Stop |
+        Select-Object -First 1
+
+    if (-not $tss -or $tss.AllowTSConnections -ne 1) {
+        # Remote Desktop is disabled. Windows still auto-generates a self-signed
+        # RDP certificate, so only report Terminal Services inventory when RDP is active.
+        [pscustomobject]@{ Enabled = $false } | ConvertTo-Json
+        return
+    }
+
     $ts = Get-CimInstance -Namespace root/cimv2/TerminalServices -ClassName Win32_TSGeneralSetting -ErrorAction Stop |
         Select-Object -First 1
 
@@ -59,6 +70,7 @@ try {
     } catch {}
 
     [pscustomobject]@{
+        Enabled    = $true
         HasCert    = $true
         Thumbprint = $thumbprint
         Domain     = $domain
@@ -82,6 +94,10 @@ try {
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		log.Printf("RDP Terminal Services JSON parse failed: %v", err)
 		return nil, false
+	}
+
+	if !result.Enabled {
+		return nil, true
 	}
 
 	if !result.HasCert {
@@ -118,10 +134,15 @@ type rdCertResultSet struct {
 func collectRDCertificates() ([]api.InventoryItem, bool) {
 	script := `
 try {
-    try { Import-Module RemoteDesktopServices -ErrorAction Stop } catch {}
+    try { Import-Module RemoteDesktop -ErrorAction Stop } catch { exit 0 }
 
-    $certs = @(Get-RDCertificate -ErrorAction Stop)
-    if ($certs.Count -eq 0) { return }
+    try {
+        $certs = @(Get-RDCertificate -ErrorAction Stop)
+    } catch {
+        # Get-RDCertificate throws when no RD deployment / certificate is present
+        exit 0
+    }
+    if ($certs.Count -eq 0) { exit 0 }
 
     $results = @()
     foreach ($c in $certs) {
@@ -150,10 +171,11 @@ try {
         }
     }
 
-    if ($results.Count -eq 0) { return }
+    if ($results.Count -eq 0) { exit 0 }
     ,@($results) | ConvertTo-Json -Depth 5
+    exit 0
 } catch {
-    return
+    throw
 }
 `
 	out, err := utils.RunPowerShell(script)
