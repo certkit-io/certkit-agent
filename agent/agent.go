@@ -51,7 +51,7 @@ func getUpdateVariables(configID string) []utils.UpdateVariable {
 func PollAndSync(forceSync bool) {
 	configChanges, err := PollForConfiguration(forceSync)
 	if err != nil {
-		reportAgentError(err, "", "")
+		reportAgentError(fmt.Errorf("poll: %w", err), "", "")
 		return
 	}
 	if utils.IsAgentUnauthorized() {
@@ -61,7 +61,7 @@ func PollAndSync(forceSync bool) {
 	statuses := SynchronizeCertificates(configChanges, forceSync)
 	if len(statuses) > 0 {
 		if err := api.UpdateConfigStatus(statuses); err != nil {
-			reportAgentError(err, "", "")
+			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
 		}
 	}
 }
@@ -351,8 +351,8 @@ func reportAgentError(err error, configId string, certificateId string) {
 		return
 	}
 
-	if reportErr := api.ReportAgentError(err.Error(), configId, certificateId); reportErr != nil {
-		log.Printf("Error reporting agent error: %v", reportErr)
-	}
+	// Reporting to the server is fire-and-forget; a failure here is itself
+	// usually a network problem already covered by the error we log below.
+	_ = api.ReportAgentError(err.Error(), configId, certificateId)
 	log.Printf("Error: %v", err)
 }

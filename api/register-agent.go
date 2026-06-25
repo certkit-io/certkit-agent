@@ -90,21 +90,9 @@ func RegisterAgent() (*RegisterAgentResponse, error) {
 	// Required for JSON
 	req.Header.Set("Content-Type", "application/json")
 
-	// (Optional) Set a timeout at the client level
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
-	//privKey, _ := auth.DecodePrivateKey(config.CurrentConfig.Auth.KeyPair.PrivateKey)
-
-	// err = auth.SignRequest(req, "Eric", privKey, time.Now())
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	resp, err := client.Do(req)
+	resp, err := doRequest(newHTTPClient(), req)
 	if err != nil {
-		return nil, fmt.Errorf("http do: %w", err)
+		return nil, err
 	}
 
 	defer resp.Body.Close()

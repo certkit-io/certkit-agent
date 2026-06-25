@@ -116,13 +116,9 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 		return nil, fmt.Errorf("sign request: %w", err)
 	}
 
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
-	resp, err := client.Do(req)
+	resp, err := doRequest(newHTTPClient(), req)
 	if err != nil {
-		return nil, fmt.Errorf("http do: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
