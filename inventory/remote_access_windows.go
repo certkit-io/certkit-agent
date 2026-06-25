@@ -68,9 +68,24 @@ func loadRemoteAccessInventoryFromPowerShell() (remoteAccessInventoryResult, boo
 $domains = @()
 $daInstalled = $false
 $rrasInstalled = $false
+
+if (-not (Get-Command Get-RemoteAccess -ErrorAction SilentlyContinue)) {
+    [pscustomobject]@{
+        DAInstalled   = $false
+        RRASInstalled = $false
+        Domains       = $domains
+    } | ConvertTo-Json -Depth 5
+    return
+}
+
 try {
     $remoteAccess = Get-RemoteAccess -ErrorAction Stop
 } catch {
+    [pscustomobject]@{
+        DAInstalled   = $false
+        RRASInstalled = $false
+        Domains       = $domains
+    } | ConvertTo-Json -Depth 5
     return
 }
 
@@ -105,8 +120,6 @@ if ($remoteAccess -and $remoteAccess.SslCertificate -and $remoteAccess.SslCertif
 		log.Printf("RemoteAccess inventory lookup via PowerShell failed: %v", err)
 		return remoteAccessInventoryResult{}, false
 	}
-
-	log.Print(out)
 
 	raw := strings.TrimSpace(out)
 	if raw == "" || raw == "null" {

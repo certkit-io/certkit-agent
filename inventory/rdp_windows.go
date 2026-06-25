@@ -118,10 +118,15 @@ type rdCertResultSet struct {
 func collectRDCertificates() ([]api.InventoryItem, bool) {
 	script := `
 try {
-    try { Import-Module RemoteDesktopServices -ErrorAction Stop } catch {}
+    try { Import-Module RemoteDesktop -ErrorAction Stop } catch { exit 0 }
 
-    $certs = @(Get-RDCertificate -ErrorAction Stop)
-    if ($certs.Count -eq 0) { return }
+    try {
+        $certs = @(Get-RDCertificate -ErrorAction Stop)
+    } catch {
+        # Get-RDCertificate throws when no RD deployment / certificate is present
+        exit 0
+    }
+    if ($certs.Count -eq 0) { exit 0 }
 
     $results = @()
     foreach ($c in $certs) {
@@ -150,10 +155,11 @@ try {
         }
     }
 
-    if ($results.Count -eq 0) { return }
+    if ($results.Count -eq 0) { exit 0 }
     ,@($results) | ConvertTo-Json -Depth 5
+    exit 0
 } catch {
-    return
+    throw
 }
 `
 	out, err := utils.RunPowerShell(script)

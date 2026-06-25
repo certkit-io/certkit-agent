@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -22,6 +23,9 @@ func Collect() ([]api.InventoryItem, error) {
 		providerItems, err := provider.Collect()
 		if err != nil {
 			return nil, fmt.Errorf("%s inventory: %w", provider.Name(), err)
+		}
+		if len(providerItems) == 0 {
+			log.Printf("[Auto-Discovery] (%s) - not found on this server. Skipping...", provider.Name())
 		}
 		items = append(items, providerItems...)
 	}
