@@ -70,7 +70,7 @@ type CertificateConfiguration struct {
 
 func (c CertificateConfiguration) UsesWindowsCertStore() bool {
 	ct := strings.ToLower(c.ConfigType)
-	return ct == "windows-cert-store" || ct == "iis" || ct == "rdp" || ct == "rras" || ct == "direct-access"
+	return ct == "windows-cert-store" || ct == "iis" || ct == "rdp" || ct == "rras" || ct == "direct-access" || ct == "exchange"
 }
 
 func (c CertificateConfiguration) IsJKS() bool {
