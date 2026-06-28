@@ -121,6 +121,11 @@ func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange
 		)
 	}
 
+	if response.ForceAutodiscover {
+		log.Printf("Auto-discovery requested by server")
+		SendInventory()
+	}
+
 	if response.Keystore != nil {
 		updateKeystoreConfig(response.Keystore)
 	} else if config.CurrentConfig.Keystore != nil {
