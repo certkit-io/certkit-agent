@@ -58,29 +58,52 @@ func TestParseExchangeCertificatesJSONEmpty(t *testing.T) {
 	}
 }
 
-func TestExchangeInventoryItems(t *testing.T) {
-	// One item per discovered certificate. Services drive the destination
-	// (canonicalized, de-duped); wildcard domains normalize to their base and
-	// non-FQDN tokens drop out. A certificate bound to no manageable service is
-	// skipped entirely.
+func TestExchangeInventoryItemsSingleTarget(t *testing.T) {
 	certs := []exchangeCert{
-		{Services: "IIS, SMTP, IMAP, SMTP", Domains: "mail.contoso.com,*.contoso.com,not a domain,mail.contoso.com"},
-		{Services: "IMAP, POP", Domains: "imap.contoso.com"},
+		{Services: "IIS, SMTP, IMAP, POP, SMTP", Domains: "mail.contoso.com,*.contoso.com,not a domain,mail.contoso.com"},
+		{Services: "IIS, SMTP, IMAP, POP, SMTP", Domains: "mail.contoso.com,*.contoso.com,not a domain,mail.contoso.com"},
 		{Services: "None", Domains: "ignored.contoso.com"},
 	}
 
 	items := exchangeInventoryItems(certs)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items (None-only cert skipped), got %d", len(items))
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item (duplicate target and None-only cert skipped), got %d", len(items))
 	}
 
 	want := []api.InventoryItem{
 		{
 			Server:          "exchange",
 			ConfigPath:      "Exchange",
-			CertificatePath: "IIS,SMTP,IMAP",
-			KeyPath:         "IIS,SMTP,IMAP",
+			CertificatePath: "IIS,SMTP,IMAP,POP",
+			KeyPath:         "IIS,SMTP,IMAP,POP",
 			Domains:         "mail.contoso.com,contoso.com",
+		},
+	}
+	for i, w := range want {
+		if items[i] != w {
+			t.Fatalf("item[%d]\n got = %+v\nwant = %+v", i, items[i], w)
+		}
+	}
+}
+
+func TestExchangeInventoryItemsSplitTargets(t *testing.T) {
+	certs := []exchangeCert{
+		{Services: "IIS, SMTP", Domains: "mail.contoso.com"},
+		{Services: "IMAP, POP", Domains: "imap.contoso.com"},
+	}
+
+	items := exchangeInventoryItems(certs)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	want := []api.InventoryItem{
+		{
+			Server:          "exchange",
+			ConfigPath:      "Exchange",
+			CertificatePath: "IIS,SMTP",
+			KeyPath:         "IIS,SMTP",
+			Domains:         "mail.contoso.com",
 		},
 		{
 			Server:          "exchange",

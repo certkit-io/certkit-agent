@@ -25,38 +25,46 @@ func (ExchangeProvider) Collect() ([]api.InventoryItem, error) {
 	return exchangeInventoryItems(certs), nil
 }
 
-// exchangeInventoryItems emits one inventory item per discovered certificate. A
-// given Exchange service (IIS, SMTP, IMAP, ...) can only ever bind one
-// certificate, so service sets are disjoint across certs -- each item's service
-// list is therefore a unique deploy target, and reporting per-cert (rather than a
-// merged union) keeps each certificate's own domains intact.
+// exchangeInventoryItems emits one item per unique Exchange deploy target. The
+// destination is the services list because deployment later passes it to
+// Enable-ExchangeCertificate -Services. When one cert is enabled for several
+// services, those services stay together as one manageable target.
 func exchangeInventoryItems(certs []exchangeCert) []api.InventoryItem {
 	items := make([]api.InventoryItem, 0, len(certs))
+	seenTargets := make(map[string]struct{}, len(certs))
+
 	for _, c := range certs {
-		// The services the certificate actually serves become the deploy
-		// destination, so the renewed certificate is re-enabled for the same set.
 		services := CanonicalizeExchangeServices(c.Services)
 		if services == "" {
-			// Not bound to any service we can deploy to; nothing to manage.
 			continue
 		}
 
-		domains := make([]string, 0)
-		for _, token := range strings.Split(c.Domains, ",") {
-			if normalized, ok := normalizeDomain(token); ok {
-				domains = append(domains, normalized)
-			}
+		domains := exchangeInventoryDomains(c.Domains)
+		targetKey := services + "\x00" + domains
+		if _, ok := seenTargets[targetKey]; ok {
+			continue
 		}
+		seenTargets[targetKey] = struct{}{}
 
 		items = append(items, api.InventoryItem{
 			Server:          "exchange",
 			ConfigPath:      "Exchange",
 			CertificatePath: services,
 			KeyPath:         services,
-			Domains:         joinDomains(domains),
+			Domains:         domains,
 		})
 	}
 	return items
+}
+
+func exchangeInventoryDomains(value string) string {
+	domains := make([]string, 0)
+	for _, token := range strings.Split(value, ",") {
+		if normalized, ok := normalizeDomain(token); ok {
+			domains = append(domains, normalized)
+		}
+	}
+	return joinDomains(domains)
 }
 
 // DefaultExchangeServices matches the CertKit Exchange template default: enable a
@@ -81,9 +89,9 @@ var knownExchangeServices = map[string]string{
 	"smtpclientauth": "SMTPClientAuth",
 }
 
-// CanonicalizeExchangeServices parses a comma-separated services list — either
+// CanonicalizeExchangeServices parses a comma-separated services list -- either
 // the "IIS, SMTP" string Get-ExchangeCertificate emits during inventory or a
-// stored deploy destination — into a canonical, de-duplicated, order-preserving
+// stored deploy destination -- into a canonical, de-duplicated, order-preserving
 // comma-separated list. Unknown tokens and "None" are dropped. Returns "" when
 // nothing usable remains; callers needing a deploy target fall back to
 // DefaultExchangeServices.
@@ -153,8 +161,7 @@ try {
 }
 
 # Report every certificate Exchange has bound to a TLS service (IIS, SMTP, IMAP,
-# POP, UM, Federation, ...). Each service binds only one certificate, so the
-# service sets are disjoint and each certificate is independently manageable.
+# POP, UM, Federation, ...). The service list becomes the deploy target.
 $results = @()
 foreach ($c in $certs) {
     $svc = [string]$c.Services
