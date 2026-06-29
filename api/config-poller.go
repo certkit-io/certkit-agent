@@ -33,6 +33,7 @@ type ConfigurationPollResponse struct {
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
+	ForceAutodiscover                bool                              `json:"force_autodiscover,omitempty"`
 	VariablesByConfigId              map[string][]utils.UpdateVariable `json:"-"`
 }
 
@@ -49,6 +50,7 @@ type pollResponseWire struct {
 	LockRequested                    bool                   `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal          `json:"update_available,omitempty"`
+	ForceAutodiscover                bool                   `json:"force_autodiscover,omitempty"`
 }
 
 type UpdateSignal struct {
@@ -160,6 +162,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 		LockRequested:                    wire.LockRequested,
 		Keystore:                         wire.Keystore,
 		UpdateAvailable:                  wire.UpdateAvailable,
+		ForceAutodiscover:                wire.ForceAutodiscover,
 		VariablesByConfigId:              varsByID,
 	}, nil
 }

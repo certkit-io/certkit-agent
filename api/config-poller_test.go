@@ -55,3 +55,19 @@ func TestPollResponseDecodeKeepsVariablesOffDiskStruct(t *testing.T) {
 	}
 }
 
+func TestPollResponseDecodeForceAutodiscover(t *testing.T) {
+	body := []byte(`{
+		"updated_certificate_configurations": [],
+		"lock_requested": false,
+		"force_autodiscover": true
+	}`)
+
+	var wire pollResponseWire
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatalf("unmarshal wire: %v", err)
+	}
+
+	if !wire.ForceAutodiscover {
+		t.Fatal("expected force_autodiscover to decode as true")
+	}
+}
