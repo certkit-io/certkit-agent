@@ -34,12 +34,9 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 
 	for i := range config.CurrentConfig.CertificateConfigurations {
 		cfg := &config.CurrentConfig.CertificateConfigurations[i]
-		lastStatus := cfg.LastStatus
-		waitingForWindow := lastStatus == statusWaitingWindow
-		retrySync := lastStatus == statusErrorGetCert || lastStatus == statusErrorWriteCert
 		change := configChanges[cfg.Id]
 
-		if !change.Changed && !forceSync && !waitingForWindow && !retrySync {
+		if !change.Changed && !forceSync && !isRetryableStatus(cfg.LastStatus) {
 			continue
 		}
 		if change.Changed {
@@ -61,6 +58,20 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 		}
 	}
 	return statuses
+}
+
+func isRetryableStatus(status string) bool {
+	switch status {
+	case statusErrorUpdateCmd,
+		statusWaitingWindow,
+		statusPendingSync,
+		statusErrorGetCert,
+		statusErrorWriteCert,
+		statusErrorGeneral:
+		return true
+	default:
+		return false
+	}
 }
 
 func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigChange) api.AgentConfigStatusUpdate {

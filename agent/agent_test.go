@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -250,6 +251,92 @@ func TestDetectChangedConfigs_EmptyIncomingListReturnsEmptyMap(t *testing.T) {
 	}
 }
 
+func TestPreserveRetryableStatuses_PreservesUpdateCommandFailure(t *testing.T) {
+	incoming := []config.CertificateConfiguration{
+		{Id: "a", LastStatus: statusSynced},
+	}
+
+	preserveRetryableStatuses(
+		[]config.CertificateConfiguration{
+			{Id: "a", LastStatus: statusErrorUpdateCmd},
+		},
+		incoming,
+	)
+
+	if incoming[0].LastStatus != statusErrorUpdateCmd {
+		t.Fatalf("LastStatus = %q, want %q", incoming[0].LastStatus, statusErrorUpdateCmd)
+	}
+}
+
+func TestPreserveRetryableStatuses_DoesNotPreserveSynced(t *testing.T) {
+	incoming := []config.CertificateConfiguration{
+		{Id: "a", LastStatus: ""},
+	}
+
+	preserveRetryableStatuses(
+		[]config.CertificateConfiguration{
+			{Id: "a", LastStatus: statusSynced},
+		},
+		incoming,
+	)
+
+	if incoming[0].LastStatus != "" {
+		t.Fatalf("LastStatus = %q, want empty", incoming[0].LastStatus)
+	}
+}
+
+func TestIsRetryableStatus(t *testing.T) {
+	retryableStatuses := []string{
+		statusErrorUpdateCmd,
+		statusWaitingWindow,
+		statusPendingSync,
+		statusErrorGetCert,
+		statusErrorWriteCert,
+		statusErrorGeneral,
+	}
+
+	for _, status := range retryableStatuses {
+		if !isRetryableStatus(status) {
+			t.Fatalf("isRetryableStatus(%q) = false, want true", status)
+		}
+	}
+
+	for _, status := range []string{"", statusSynced} {
+		if isRetryableStatus(status) {
+			t.Fatalf("isRetryableStatus(%q) = true, want false", status)
+		}
+	}
+}
+
+func TestSynchronizeCertificates_ProcessesUpdateCommandFailureDuringNormalPoll(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:            "a",
+				CertificateId: "cert-a",
+				LastStatus:    statusErrorUpdateCmd,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, false)
+
+	if len(statuses) != 1 {
+		t.Fatalf("len(statuses) = %d, want 1", len(statuses))
+	}
+	if statuses[0].Status != statusErrorGeneral {
+		t.Fatalf("Status = %q, want %q", statuses[0].Status, statusErrorGeneral)
+	}
+}
+
 func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 	t.Cleanup(func() { setUpdateVariables(nil) })
 
@@ -282,4 +369,3 @@ func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 		t.Fatalf("nil setter should clear, got %+v", got)
 	}
 }
-
