@@ -91,6 +91,12 @@ Import-Module WebAdministration
             if ($binding.protocol -eq 'https') {
                 $parts = $binding.bindingInformation -split ':', 3
 
+                # Skip bindings without a numeric TCP port. Exchange and other
+                # apps register https bindings whose bindingInformation does not
+                # follow the IP:Port:Host shape, leaving a non-numeric value in
+                # $parts[1] (e.g. "Default Web Site:f6b7").
+                if ($parts[1] -notmatch '^\d+$') { continue }
+
                 [pscustomobject]@{
                     Site     = $site.Name
                     Port     = $parts[1]

@@ -96,6 +96,9 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 	if strings.EqualFold(cfg.ConfigType, "rdp") {
 		return synchronizeRDPCertificate(cfg, change)
 	}
+	if strings.EqualFold(cfg.ConfigType, "exchange") {
+		return synchronizeExchangeCertificate(cfg, change)
+	}
 	if strings.EqualFold(cfg.ConfigType, "windows-cert-store") {
 		return synchronizeWindowsCertStoreCertificate(cfg, change)
 	}

@@ -7,6 +7,7 @@ func getProviders() []Provider {
 		IISProvider{},
 		RemoteAccessProvider{},
 		RDPProvider{},
+		ExchangeProvider{},
 		ApacheProvider{},
 		FileZillaProvider{},
 	}
