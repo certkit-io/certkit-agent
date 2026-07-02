@@ -64,6 +64,13 @@ func PollAndSync(forceSync bool) {
 			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
 		}
 	}
+
+	caStatuses := SynchronizePrivateCAs()
+	if len(caStatuses) > 0 {
+		if err := api.UpdatePrivateCaStatus(caStatuses); err != nil {
+			reportAgentError(fmt.Errorf("update private ca status: %w", err), "", "")
+		}
+	}
 }
 
 func NeedsRegistration() bool {
@@ -131,6 +138,10 @@ func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange
 	} else if config.CurrentConfig.Keystore != nil {
 		removeKeystoreConfig()
 	}
+
+	// Like the keystore config, private CA updates apply even when the agent
+	// is locked. The poll response list is authoritative on a full response.
+	applyPrivateCAUpdates(response.PrivateCAs)
 
 	if response.LockRequested && !isLocked {
 		if err := config.CreateLockFile(config.CurrentPath); err != nil {

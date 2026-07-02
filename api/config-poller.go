@@ -15,6 +15,7 @@ import (
 
 type ConfigurationPollRequest struct {
 	CertificateConfigurations []PollRequestCertificateConfig `json:"certificate_configurations"`
+	PrivateCAs                []PollRequestPrivateCA         `json:"private_cas,omitempty"`
 	IsLocked                  bool                           `json:"is_locked"`
 	ForceFullSync             bool                           `json:"force_full_sync,omitempty"`
 }
@@ -26,10 +27,26 @@ type PollRequestCertificateConfig struct {
 	LatestCertificateSha1       string    `json:"latest_certificate_sha1"`
 }
 
+type PollRequestPrivateCA struct {
+	Id          string `json:"ca_id"`
+	RootSHA256  string `json:"root_sha256"`
+	AutoInstall bool   `json:"auto_install"`
+	Status      string `json:"status,omitempty"`
+}
+
+type PollResponsePrivateCA struct {
+	Id          string `json:"ca_id"`
+	Name        string `json:"name"`
+	RootCAPEM   string `json:"root_ca_pem"`
+	RootSHA256  string `json:"root_sha256"`
+	AutoInstall bool   `json:"auto_install"`
+}
+
 // ConfigurationPollResponse is the agent-facing decoded poll response.
 // VariablesByConfigId is memory-only — json:"-" prevents accidental serialization.
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
+	PrivateCAs                       []PollResponsePrivateCA           `json:"private_cas,omitempty"`
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
@@ -46,11 +63,12 @@ type pollResponseConfig struct {
 }
 
 type pollResponseWire struct {
-	UpdatedCertificateConfigurations []pollResponseConfig   `json:"updated_certificate_configurations"`
-	LockRequested                    bool                   `json:"lock_requested"`
-	Keystore                         *config.KeystoreConfig `json:"keystore,omitempty"`
-	UpdateAvailable                  *UpdateSignal          `json:"update_available,omitempty"`
-	ForceAutodiscover                bool                   `json:"force_autodiscover,omitempty"`
+	UpdatedCertificateConfigurations []pollResponseConfig    `json:"updated_certificate_configurations"`
+	PrivateCAs                       []PollResponsePrivateCA `json:"private_cas,omitempty"`
+	LockRequested                    bool                    `json:"lock_requested"`
+	Keystore                         *config.KeystoreConfig  `json:"keystore,omitempty"`
+	UpdateAvailable                  *UpdateSignal           `json:"update_available,omitempty"`
+	ForceAutodiscover                bool                    `json:"force_autodiscover,omitempty"`
 }
 
 type UpdateSignal struct {
@@ -82,6 +100,16 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 		})
 	}
 
+	requestPrivateCAs := make([]PollRequestPrivateCA, 0, len(config.CurrentConfig.PrivateCAs))
+	for _, ca := range config.CurrentConfig.PrivateCAs {
+		requestPrivateCAs = append(requestPrivateCAs, PollRequestPrivateCA{
+			Id:          ca.Id,
+			RootSHA256:  ca.RootSHA256,
+			AutoInstall: ca.AutoInstall,
+			Status:      ca.LastStatus,
+		})
+	}
+
 	isLocked, err := config.IsLocked(config.CurrentPath)
 	if err != nil {
 		return nil, fmt.Errorf("check lock file: %w", err)
@@ -89,6 +117,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
+		PrivateCAs:                requestPrivateCAs,
 		IsLocked:                  isLocked,
 		ForceFullSync:             forceFullSync,
 	}
@@ -159,6 +188,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 
 	return &ConfigurationPollResponse{
 		UpdatedCertificateConfigurations: configs,
+		PrivateCAs:                       wire.PrivateCAs,
 		LockRequested:                    wire.LockRequested,
 		Keystore:                         wire.Keystore,
 		UpdateAvailable:                  wire.UpdateAvailable,
