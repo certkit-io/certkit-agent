@@ -40,6 +40,16 @@ The implementation attempts to be straightforward in an effort to make auditing 
 - **IIS configurations** are handled via PFX: the agent imports the PFX into LocalMachine\My and updates IIS bindings.
 - **Traditional PEM/key workflows** (Apache, nginx, etc.) are also supported on Windows.
 
+## Internal Domain Monitoring
+
+Domains marked as internal in CertKit can be assigned to a specific agent, which then monitors their TLS certificates from inside your network — hosts the CertKit cloud cannot reach.
+
+- **What the agent does:** for each assigned monitor it opens a single TCP connection to the configured `host:port` and performs a TLS handshake (2.5 second timeout). No request data is ever sent on the connection; the agent only captures the certificate the server presents.
+- **How often:** every 8 hours, immediately when a monitor is first assigned or its name/port is edited, and on demand when you click Check Now in the CertKit UI.
+- **What leaves your network:** certificate metadata only — the validity window (not-before/expiry), issuer DN, SHA-1 and SHA-256 fingerprints, serial number, and a pass/fail reason. Never key material, never page content, never anything read from the connection beyond the handshake.
+- **How trust is judged:** the certificate chain is verified against the agent host's OS trust store. This means private CA roots installed by the trust feature above are honored — an internal host serving a private-CA certificate shows green on agents that trust that root, and an honest "untrusted root" on hosts that don't.
+- **Docker:** an agent running in a container monitors from the container's network namespace and uses the container's trust store, not the Docker host's.
+
 ## Security Model
 
 ### Keypair generation

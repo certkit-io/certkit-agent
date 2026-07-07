@@ -16,6 +16,7 @@ import (
 type ConfigurationPollRequest struct {
 	CertificateConfigurations []PollRequestCertificateConfig `json:"certificate_configurations"`
 	PrivateCAs                []PollRequestPrivateCA         `json:"private_cas,omitempty"`
+	DomainMonitors            []PollRequestDomainMonitor     `json:"domain_monitors,omitempty"`
 	IsLocked                  bool                           `json:"is_locked"`
 	ForceFullSync             bool                           `json:"force_full_sync,omitempty"`
 }
@@ -42,11 +43,25 @@ type PollResponsePrivateCA struct {
 	AutoInstall bool   `json:"auto_install"`
 }
 
+type PollRequestDomainMonitor struct {
+	DomainId   string `json:"domain_id"`
+	DomainName string `json:"domain_name"`
+	Port       int    `json:"port"`
+}
+
+type PollResponseDomainMonitor struct {
+	DomainId           string `json:"domain_id"`
+	DomainName         string `json:"domain_name"`
+	Port               int    `json:"port"`
+	CheckRequestedDate string `json:"check_requested_date"`
+}
+
 // ConfigurationPollResponse is the agent-facing decoded poll response.
 // VariablesByConfigId is memory-only — json:"-" prevents accidental serialization.
 type ConfigurationPollResponse struct {
 	UpdatedCertificateConfigurations []config.CertificateConfiguration `json:"updated_certificate_configurations"`
 	PrivateCAs                       []PollResponsePrivateCA           `json:"private_cas,omitempty"`
+	DomainMonitors                   []PollResponseDomainMonitor       `json:"domain_monitors"`
 	LockRequested                    bool                              `json:"lock_requested"`
 	Keystore                         *config.KeystoreConfig            `json:"keystore,omitempty"`
 	UpdateAvailable                  *UpdateSignal                     `json:"update_available,omitempty"`
@@ -63,12 +78,13 @@ type pollResponseConfig struct {
 }
 
 type pollResponseWire struct {
-	UpdatedCertificateConfigurations []pollResponseConfig    `json:"updated_certificate_configurations"`
-	PrivateCAs                       []PollResponsePrivateCA `json:"private_cas,omitempty"`
-	LockRequested                    bool                    `json:"lock_requested"`
-	Keystore                         *config.KeystoreConfig  `json:"keystore,omitempty"`
-	UpdateAvailable                  *UpdateSignal           `json:"update_available,omitempty"`
-	ForceAutodiscover                bool                    `json:"force_autodiscover,omitempty"`
+	UpdatedCertificateConfigurations []pollResponseConfig        `json:"updated_certificate_configurations"`
+	PrivateCAs                       []PollResponsePrivateCA     `json:"private_cas,omitempty"`
+	DomainMonitors                   []PollResponseDomainMonitor `json:"domain_monitors"`
+	LockRequested                    bool                        `json:"lock_requested"`
+	Keystore                         *config.KeystoreConfig      `json:"keystore,omitempty"`
+	UpdateAvailable                  *UpdateSignal               `json:"update_available,omitempty"`
+	ForceAutodiscover                bool                        `json:"force_autodiscover,omitempty"`
 }
 
 type UpdateSignal struct {
@@ -110,6 +126,15 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 		})
 	}
 
+	requestMonitors := make([]PollRequestDomainMonitor, 0, len(config.CurrentConfig.DomainMonitors))
+	for _, monitor := range config.CurrentConfig.DomainMonitors {
+		requestMonitors = append(requestMonitors, PollRequestDomainMonitor{
+			DomainId:   monitor.DomainId,
+			DomainName: monitor.DomainName,
+			Port:       monitor.Port,
+		})
+	}
+
 	isLocked, err := config.IsLocked(config.CurrentPath)
 	if err != nil {
 		return nil, fmt.Errorf("check lock file: %w", err)
@@ -118,6 +143,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 	payload := ConfigurationPollRequest{
 		CertificateConfigurations: requestConfigs,
 		PrivateCAs:                requestPrivateCAs,
+		DomainMonitors:            requestMonitors,
 		IsLocked:                  isLocked,
 		ForceFullSync:             forceFullSync,
 	}
@@ -189,6 +215,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 	return &ConfigurationPollResponse{
 		UpdatedCertificateConfigurations: configs,
 		PrivateCAs:                       wire.PrivateCAs,
+		DomainMonitors:                   wire.DomainMonitors,
 		LockRequested:                    wire.LockRequested,
 		Keystore:                         wire.Keystore,
 		UpdateAvailable:                  wire.UpdateAvailable,
