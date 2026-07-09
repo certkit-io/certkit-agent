@@ -337,6 +337,52 @@ func TestSynchronizeCertificates_ProcessesUpdateCommandFailureDuringNormalPoll(t
 	}
 }
 
+func TestSynchronizeCertificates_ReportsRepeatedErrorStatus(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				// Missing destination paths fail with ERROR_GENERAL, the same
+				// status the config is already in — the retry must still be
+				// reported so the backend sees the fresh message.
+				Id:            "a",
+				CertificateId: "cert-a",
+				LastStatus:    statusErrorGeneral,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, false)
+
+	if len(statuses) != 1 {
+		t.Fatalf("len(statuses) = %d, want 1", len(statuses))
+	}
+	if statuses[0].Status != statusErrorGeneral {
+		t.Fatalf("Status = %q, want %q", statuses[0].Status, statusErrorGeneral)
+	}
+}
+
+func TestIsErrorStatus(t *testing.T) {
+	for _, status := range []string{statusErrorUpdateCmd, statusErrorGetCert, statusErrorWriteCert, statusErrorGeneral} {
+		if !isErrorStatus(status) {
+			t.Fatalf("isErrorStatus(%q) = false, want true", status)
+		}
+	}
+
+	for _, status := range []string{"", statusSynced, statusPendingSync, statusWaitingWindow} {
+		if isErrorStatus(status) {
+			t.Fatalf("isErrorStatus(%q) = true, want false", status)
+		}
+	}
+}
+
 func TestUpdateVariableStoreRoundTripAndReplace(t *testing.T) {
 	t.Cleanup(func() { setUpdateVariables(nil) })
 

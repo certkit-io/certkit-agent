@@ -45,10 +45,16 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 
 		status := synchronizeCertificate(*cfg, change)
 		if status.ConfigId != "" {
-			if status.Status != "" && status.Status != cfg.LastStatus {
+			// Error statuses are re-sent every cycle, not just on transition,
+			// so a retried failure refreshes the message on the backend.
+			// Non-error statuses (e.g. WAITING_FOR_WINDOW on every poll) are
+			// only sent when the status changes.
+			if status.Status != "" && (status.Status != cfg.LastStatus || isErrorStatus(status.Status)) {
 				statuses = append(statuses, status)
-				cfg.LastStatus = status.Status
-				configDirty = true
+				if status.Status != cfg.LastStatus {
+					cfg.LastStatus = status.Status
+					configDirty = true
+				}
 			}
 		}
 	}
@@ -65,6 +71,18 @@ func isRetryableStatus(status string) bool {
 	case statusErrorUpdateCmd,
 		statusWaitingWindow,
 		statusPendingSync,
+		statusErrorGetCert,
+		statusErrorWriteCert,
+		statusErrorGeneral:
+		return true
+	default:
+		return false
+	}
+}
+
+func isErrorStatus(status string) bool {
+	switch status {
+	case statusErrorUpdateCmd,
 		statusErrorGetCert,
 		statusErrorWriteCert,
 		statusErrorGeneral:
