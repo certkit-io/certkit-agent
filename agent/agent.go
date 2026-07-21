@@ -58,17 +58,20 @@ func PollAndSync(forceSync bool) {
 		return
 	}
 
-	statuses := SynchronizeCertificates(configChanges, forceSync)
-	if len(statuses) > 0 {
-		if err := api.UpdateConfigStatus(statuses); err != nil {
-			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
-		}
-	}
-
+	// Private CA roots install before certificates deploy so that update
+	// commands (and the services they reload) can already trust chains
+	// issued by those CAs on the very first synchronization.
 	caStatuses := SynchronizePrivateCAs()
 	if len(caStatuses) > 0 {
 		if err := api.UpdatePrivateCaStatus(caStatuses); err != nil {
 			reportAgentError(fmt.Errorf("update private ca status: %w", err), "", "")
+		}
+	}
+
+	statuses := SynchronizeCertificates(configChanges, forceSync)
+	if len(statuses) > 0 {
+		if err := api.UpdateConfigStatus(statuses); err != nil {
+			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
 		}
 	}
 }
