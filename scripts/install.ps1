@@ -4,7 +4,9 @@ Param(
     [string]$InstallDir = "C:\\Program Files\\CertKit",
     [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json",
     [string]$Owner = "certkit-io",
-    [string]$Repo = "certkit-agent"
+    [string]$Repo = "certkit-agent",
+    # Github is blocked on many customer networks, so downloads go through the CertKit github proxy
+    [string]$GithubProxyBase = "https://app.certkit.io"
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,7 +28,7 @@ function Get-Arch {
 }
 
 function Get-LatestReleaseTag {
-    $uri = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
+    $uri = "$GithubProxyBase/github-api-proxy/repos/$Owner/$Repo/releases/latest"
     $latest = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "certkit-agent-installer" }
     if (-not $latest) {
         throw "No releases found for $Owner/$Repo"
@@ -151,7 +153,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 
 Write-Host "Using release tag: $Version"
 
-$baseUrl = "https://github.com/$Owner/$Repo/releases/download/$Version"
+$baseUrl = "$GithubProxyBase/github-proxy/$Owner/$Repo/releases/download/$Version"
 $tmp = Join-Path $env:TEMP ("certkit-agent-" + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
