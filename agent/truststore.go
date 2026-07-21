@@ -20,7 +20,7 @@ const (
 
 const (
 	privateCaRecheckInterval  = 24 * time.Hour
-	privateCaMessageMaxLength = 500
+	privateCaMessageMaxLength = 2500
 )
 
 // applyPrivateCAUpdates applies the server's private CA list as the
