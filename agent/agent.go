@@ -160,7 +160,7 @@ func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange
 		configChanges = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
 		configChanges = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
-		preserveRetryableStatuses(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
+		preserveUnresolvedStatuses(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
@@ -214,7 +214,7 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 	return changedIDs
 }
 
-func preserveRetryableStatuses(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) {
+func preserveUnresolvedStatuses(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) {
 	previousByID := make(map[string]config.CertificateConfiguration, len(previousConfigurations))
 	for _, cfg := range previousConfigurations {
 		if cfg.Id != "" {
@@ -227,7 +227,7 @@ func preserveRetryableStatuses(previousConfigurations, incomingConfigurations []
 		if !ok {
 			continue
 		}
-		if isRetryableStatus(prev.LastStatus) {
+		if isUnresolvedStatus(prev.LastStatus) {
 			incomingConfigurations[i].LastStatus = prev.LastStatus
 		}
 	}
