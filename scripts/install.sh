@@ -9,6 +9,9 @@ fi
 OWNER="certkit-io"
 REPO="certkit-agent"
 
+# Github is blocked on many customer networks, so downloads go through the CertKit github proxy
+GITHUB_PROXY_BASE="${GITHUB_PROXY_BASE:-https://app.certkit.io}"
+
 BIN_NAME="certkit-agent"
 INSTALL_DIR="/usr/local/bin"
 
@@ -26,7 +29,7 @@ if [[ -n "${VERSION:-}" ]]; then
   TAG="$VERSION"
 else
   TAG="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-    "https://github.com/${OWNER}/${REPO}/releases/latest" | sed -n 's#.*/tag/##p')"
+    "${GITHUB_PROXY_BASE}/github-proxy/${OWNER}/${REPO}/releases/latest" | sed -n 's#.*/tag/##p')"
   if [[ -z "$TAG" ]]; then
     echo "Failed to determine latest release tag" >&2
     exit 1
@@ -48,7 +51,7 @@ esac
 
 ASSET_BIN="${BIN_NAME}_linux_${arch}"
 ASSET_SHA="${BIN_NAME}_SHA256SUMS.txt"
-BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download/${TAG}"
+BASE_URL="${GITHUB_PROXY_BASE}/github-proxy/${OWNER}/${REPO}/releases/download/${TAG}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
