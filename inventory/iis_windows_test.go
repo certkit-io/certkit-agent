@@ -3,10 +3,28 @@
 package inventory
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/certkit-io/certkit-agent/api"
 )
+
+func TestIISBindingsScriptLimit(t *testing.T) {
+	if iisMaxBindings != 1000 {
+		t.Fatalf("iisMaxBindings = %d, want 1000", iisMaxBindings)
+	}
+
+	script := iisBindingsScript()
+	want := fmt.Sprintf("Select-Object -First %d", iisMaxBindings)
+	if !strings.Contains(script, want) {
+		t.Fatalf("script does not embed binding limit %q:\n%s", want, script)
+	}
+	// Guard against the format string leaking an unfilled verb.
+	if strings.Contains(script, "%d") || strings.Contains(script, "%!") {
+		t.Fatalf("script has an unformatted verb:\n%s", script)
+	}
+}
 
 // sampleIISBindingsJSON mirrors the real {"value":[...],"Count":N} payload the
 // inventory PowerShell emits (captured from a live applicationHost.config with a

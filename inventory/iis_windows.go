@@ -60,6 +60,9 @@ func iisInventoryItems(bindings []iisBinding) []api.InventoryItem {
 // IIS sslFlags bit (0x1) marking a binding as SNI-enabled.
 const iisSslFlagSNI = 1
 
+// Maximum number of IIS https bindings to discover in a single collection.
+const iisMaxBindings = 1000
+
 type iisBinding struct {
 	Site     string `json:"Site"`
 	Port     string `json:"Port"`
@@ -73,7 +76,19 @@ type iisBindingResult struct {
 }
 
 func loadIISBindingsFromPowerShell() ([]iisBinding, bool) {
-	script := `
+	out, err := utils.RunPowerShell(iisBindingsScript())
+	if err != nil {
+		log.Printf("IIS SSL bindings lookup via PowerShell failed: %v", err)
+		return nil, false
+	}
+
+	return parseIISBindingsJSON(out), true
+}
+
+// iisBindingsScript builds the PowerShell that enumerates https bindings,
+// capping the result at iisMaxBindings.
+func iisBindingsScript() string {
+	return fmt.Sprintf(`
 
 if (-not (Get-Module -ListAvailable -Name WebAdministration)) {
 	,@() | ConvertTo-Json
@@ -106,16 +121,9 @@ Import-Module WebAdministration
             }
         }
     } |
-    Select-Object -First 250
+    Select-Object -First %d
 ) | ConvertTo-Json
-`
-	out, err := utils.RunPowerShell(script)
-	if err != nil {
-		log.Printf("IIS SSL bindings lookup via PowerShell failed: %v", err)
-		return nil, false
-	}
-
-	return parseIISBindingsJSON(out), true
+`, iisMaxBindings)
 }
 
 // parseIISBindingsJSON decodes the {"value":[...],"Count":N} payload produced by
