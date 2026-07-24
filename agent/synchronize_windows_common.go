@@ -37,11 +37,7 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change C
 		return status
 	}
 
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
-	retryFull := cfg.LastStatus == statusPendingSync ||
-		cfg.LastStatus == statusErrorGetCert ||
-		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
+	resumeApply := cfg.LastStatus == statusWaitingWindow
 
 	exists, err := certInStore(thumbprint)
 	if err != nil {
@@ -51,8 +47,8 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change C
 	}
 	needsFetch := !exists
 
-	shouldFetch := needsFetch || retryFull
-	shouldApply := needsFetch || change.Changed || retryUpdateOnly || retryFull
+	shouldFetch := needsFetch
+	shouldApply := needsFetch || change.Changed || resumeApply
 
 	importedPfx := false
 	if shouldFetch {
@@ -116,6 +112,13 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change C
 	if importedPfx || appliedCert {
 		log.Printf("%s synchronization complete for (config=%s). (imported_pfx=%t, applied_cert=%t)", svc.serviceName, cfg.Id, importedPfx, appliedCert)
 	} else {
+		// Nothing was done, so a standing failure must not be overwritten
+		// with SYNCED — it sticks until the configuration is saved again on
+		// the server or the certificate rotates.
+		if isErrorStatus(cfg.LastStatus) {
+			log.Printf("%s configuration (config=%s) unchanged since last failure (%s); leaving status as-is.", svc.serviceName, cfg.Id, cfg.LastStatus)
+			return api.AgentConfigStatusUpdate{}
+		}
 		log.Printf("%s configuration (config=%s) synchronization checks complete.  No action taken, everything up to date.", svc.serviceName, cfg.Id)
 	}
 

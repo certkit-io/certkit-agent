@@ -1,6 +1,16 @@
 package agent
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
+	"math/big"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -251,12 +261,12 @@ func TestDetectChangedConfigs_EmptyIncomingListReturnsEmptyMap(t *testing.T) {
 	}
 }
 
-func TestPreserveRetryableStatuses_PreservesUpdateCommandFailure(t *testing.T) {
+func TestPreserveUnresolvedStatuses_PreservesUpdateCommandFailure(t *testing.T) {
 	incoming := []config.CertificateConfiguration{
 		{Id: "a", LastStatus: statusSynced},
 	}
 
-	preserveRetryableStatuses(
+	preserveUnresolvedStatuses(
 		[]config.CertificateConfiguration{
 			{Id: "a", LastStatus: statusErrorUpdateCmd},
 		},
@@ -268,12 +278,12 @@ func TestPreserveRetryableStatuses_PreservesUpdateCommandFailure(t *testing.T) {
 	}
 }
 
-func TestPreserveRetryableStatuses_DoesNotPreserveSynced(t *testing.T) {
+func TestPreserveUnresolvedStatuses_DoesNotPreserveSynced(t *testing.T) {
 	incoming := []config.CertificateConfiguration{
 		{Id: "a", LastStatus: ""},
 	}
 
-	preserveRetryableStatuses(
+	preserveUnresolvedStatuses(
 		[]config.CertificateConfiguration{
 			{Id: "a", LastStatus: statusSynced},
 		},
@@ -285,30 +295,43 @@ func TestPreserveRetryableStatuses_DoesNotPreserveSynced(t *testing.T) {
 	}
 }
 
-func TestIsRetryableStatus(t *testing.T) {
-	retryableStatuses := []string{
+func TestIsUnresolvedStatus(t *testing.T) {
+	unresolved := []string{
 		statusErrorUpdateCmd,
 		statusWaitingWindow,
-		statusPendingSync,
 		statusErrorGetCert,
 		statusErrorWriteCert,
 		statusErrorGeneral,
 	}
 
-	for _, status := range retryableStatuses {
-		if !isRetryableStatus(status) {
-			t.Fatalf("isRetryableStatus(%q) = false, want true", status)
+	for _, status := range unresolved {
+		if !isUnresolvedStatus(status) {
+			t.Fatalf("isUnresolvedStatus(%q) = false, want true", status)
 		}
 	}
 
 	for _, status := range []string{"", statusSynced} {
-		if isRetryableStatus(status) {
-			t.Fatalf("isRetryableStatus(%q) = true, want false", status)
+		if isUnresolvedStatus(status) {
+			t.Fatalf("isUnresolvedStatus(%q) = true, want false", status)
 		}
 	}
 }
 
-func TestSynchronizeCertificates_ProcessesUpdateCommandFailureDuringNormalPoll(t *testing.T) {
+func TestIsPendingWorkStatus(t *testing.T) {
+	if !isPendingWorkStatus(statusWaitingWindow) {
+		t.Fatalf("isPendingWorkStatus(%q) = false, want true", statusWaitingWindow)
+	}
+
+	// Error statuses must NOT re-enter synchronization on an unchanged
+	// config — a failure sticks until the config is saved again on the app.
+	for _, status := range []string{"", statusSynced, statusErrorUpdateCmd, statusErrorGetCert, statusErrorWriteCert, statusErrorGeneral} {
+		if isPendingWorkStatus(status) {
+			t.Fatalf("isPendingWorkStatus(%q) = true, want false", status)
+		}
+	}
+}
+
+func TestSynchronizeCertificates_DoesNotRetryFailureDuringNormalPoll(t *testing.T) {
 	previousConfig := config.CurrentConfig
 	previousPath := config.CurrentPath
 	t.Cleanup(func() {
@@ -329,15 +352,15 @@ func TestSynchronizeCertificates_ProcessesUpdateCommandFailureDuringNormalPoll(t
 
 	statuses := SynchronizeCertificates(nil, false)
 
-	if len(statuses) != 1 {
-		t.Fatalf("len(statuses) = %d, want 1", len(statuses))
+	if len(statuses) != 0 {
+		t.Fatalf("len(statuses) = %d, want 0 (failed config must not retry without a change)", len(statuses))
 	}
-	if statuses[0].Status != statusErrorGeneral {
-		t.Fatalf("Status = %q, want %q", statuses[0].Status, statusErrorGeneral)
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusErrorUpdateCmd {
+		t.Fatalf("LastStatus = %q, want %q preserved", got, statusErrorUpdateCmd)
 	}
 }
 
-func TestSynchronizeCertificates_ReportsRepeatedErrorStatus(t *testing.T) {
+func TestSynchronizeCertificates_ReportsRepeatedErrorStatusOnRetry(t *testing.T) {
 	previousConfig := config.CurrentConfig
 	previousPath := config.CurrentPath
 	t.Cleanup(func() {
@@ -350,8 +373,9 @@ func TestSynchronizeCertificates_ReportsRepeatedErrorStatus(t *testing.T) {
 		CertificateConfigurations: []config.CertificateConfiguration{
 			{
 				// Missing destination paths fail with ERROR_GENERAL, the same
-				// status the config is already in — the retry must still be
-				// reported so the backend sees the fresh message.
+				// status the config is already in — the retry (triggered by a
+				// config change) must still be reported so the backend sees
+				// the fresh message.
 				Id:            "a",
 				CertificateId: "cert-a",
 				LastStatus:    statusErrorGeneral,
@@ -359,13 +383,79 @@ func TestSynchronizeCertificates_ReportsRepeatedErrorStatus(t *testing.T) {
 		},
 	}
 
-	statuses := SynchronizeCertificates(nil, false)
+	statuses := SynchronizeCertificates(map[string]ConfigChange{"a": {Changed: true}}, false)
 
 	if len(statuses) != 1 {
 		t.Fatalf("len(statuses) = %d, want 1", len(statuses))
 	}
 	if statuses[0].Status != statusErrorGeneral {
 		t.Fatalf("Status = %q, want %q", statuses[0].Status, statusErrorGeneral)
+	}
+}
+
+// writeSelfSignedCertPEM writes a freshly generated self-signed certificate to
+// path and returns its SHA1 fingerprint in hex.
+func writeSelfSignedCertPEM(t *testing.T, path string) string {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "certkit-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	sum := sha1.Sum(der)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestSynchronizeCertificates_ForceSyncPreservesFailureWhenNothingToDo(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	// The on-disk certificate matches the expected SHA1, so a force sync (as
+	// happens on every agent restart) has nothing to do. The standing update
+	// command failure must persist — no erroneous SYNCED may be pushed.
+	certPath := filepath.Join(t.TempDir(), "cert.pem")
+	certSha1 := writeSelfSignedCertPEM(t, certPath)
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        certPath,
+				AllInOne:              true,
+				LatestCertificateSha1: certSha1,
+				UpdateCmd:             "echo hi",
+				LastStatus:            statusErrorUpdateCmd,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, true)
+
+	if len(statuses) != 0 {
+		t.Fatalf("len(statuses) = %d, want 0 (got %+v)", len(statuses), statuses)
+	}
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusErrorUpdateCmd {
+		t.Fatalf("LastStatus = %q, want %q preserved", got, statusErrorUpdateCmd)
 	}
 }
 
@@ -376,7 +466,7 @@ func TestIsErrorStatus(t *testing.T) {
 		}
 	}
 
-	for _, status := range []string{"", statusSynced, statusPendingSync, statusWaitingWindow} {
+	for _, status := range []string{"", statusSynced, statusWaitingWindow} {
 		if isErrorStatus(status) {
 			t.Fatalf("isErrorStatus(%q) = true, want false", status)
 		}

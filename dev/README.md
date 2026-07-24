@@ -6,6 +6,8 @@ can register and fetch certificates from the server.
 
 Files
 - `docker-compose.yml`: Compose definition for the agent container.
+- `Dockerfile`: golang:1.24 plus the ca-certificates package so the
+  private CA trust-store flow (anchor dir + update-ca-certificates) works.
 - `config.json`: Generated at runtime (ignored by git).
 - `.env`: Local-only environment values for the container (ignored by git).
 

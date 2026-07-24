@@ -23,6 +23,7 @@ type Config struct {
 	Bootstrap                 *BootstrapCreds            `json:"bootstrap,omitempty"`
 	Agent                     *AgentCreds                `json:"agent,omitempty"`
 	CertificateConfigurations []CertificateConfiguration `json:"certificate_configurations,omitempty"`
+	PrivateCAs                []PrivateCAConfig          `json:"private_cas,omitempty"`
 	Keystore                  *KeystoreConfig            `json:"keystore,omitempty"`
 	InventorySent             bool                       `json:"inventory_sent,omitempty"`
 	Auth                      *AuthCreds                 `json:"auth,omitempty"`
@@ -66,6 +67,17 @@ type CertificateConfiguration struct {
 	AllInOne                    bool       `json:"all_in_one,omitempty"`
 	IsPfx                       bool       `json:"is_pfx"`
 	ConfigType                  string     `json:"config_type"`
+}
+
+type PrivateCAConfig struct {
+	Id               string     `json:"ca_id"`
+	Name             string     `json:"name"`
+	RootCAPEM        string     `json:"root_ca_pem"`
+	RootSHA256       string     `json:"root_sha256"`
+	AutoInstall      bool       `json:"auto_install"`
+	LastStatus       string     `json:"last_status,omitempty"`
+	InstalledByAgent bool       `json:"installed_by_agent,omitempty"`
+	LastVerified     *time.Time `json:"last_verified,omitempty"`
 }
 
 func (c CertificateConfiguration) UsesWindowsCertStore() bool {
