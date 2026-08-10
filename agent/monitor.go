@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"log"
 	"math/big"
@@ -24,6 +25,13 @@ const (
 	domainMonitorTimeout         = 2500 * time.Millisecond
 )
 
+// Defensive caps on the reported chain; a healthy chain is 2-4 certificates,
+// a few KB. Anything past these is not worth shipping.
+const (
+	chainPemMaxCerts = 10
+	chainPemMaxBytes = 256 * 1024
+)
+
 // Failure reasons match the server's DomainStatusReason enum member names verbatim.
 const (
 	failureUnableToRetrieveCertificate   = "UnableToRetrieveCertificate"
@@ -39,13 +47,8 @@ const (
 	chainFlagPartialChain     = 65536
 )
 
-// monitorRootsOverride replaces the host's trust store during chain
-// verification. nil in production (Go uses the system/platform verifier);
-// tests set it to avoid depending on the machine's trust store.
-var monitorRootsOverride *x509.CertPool
-
 func monitorRoots() *x509.CertPool {
-	return monitorRootsOverride
+	return freshSystemRoots()
 }
 
 // applyDomainMonitorUpdates applies the server's monitor list as the
@@ -124,11 +127,18 @@ func SynchronizeDomainMonitors() []api.DomainMonitoringResultUpdate {
 	results := make([]api.DomainMonitoringResultUpdate, 0, len(config.CurrentConfig.DomainMonitors))
 	now := time.Now().UTC()
 
+	var roots *x509.CertPool
+	rootsLoaded := false
+
 	for _, monitor := range config.CurrentConfig.DomainMonitors {
 		if !shouldCheckMonitor(monitor, now) {
 			continue
 		}
-		results = append(results, checkDomainMonitor(monitor))
+		if !rootsLoaded {
+			roots = monitorRoots()
+			rootsLoaded = true
+		}
+		results = append(results, checkDomainMonitor(monitor, roots))
 	}
 
 	return results
@@ -169,7 +179,7 @@ func shouldCheckMonitor(monitor config.DomainMonitorConfig, now time.Time) bool 
 	return now.Sub(*monitor.LastChecked) >= domainMonitorRecheckInterval
 }
 
-func checkDomainMonitor(monitor config.DomainMonitorConfig) api.DomainMonitoringResultUpdate {
+func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool) api.DomainMonitoringResultUpdate {
 	result := api.DomainMonitoringResultUpdate{
 		DomainId:  monitor.DomainId,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -221,6 +231,7 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig) api.DomainMonitoring
 	sha256Sum := sha256.Sum256(leaf.Raw)
 	result.Sha256 = strings.ToUpper(hex.EncodeToString(sha256Sum[:]))
 	result.SerialNumber = formatSerialNumber(leaf.SerialNumber)
+	result.ChainPem = encodeChainPem(peerCertificates)
 
 	if err := leaf.VerifyHostname(monitor.DomainName); err != nil {
 		result.FailureReason = failureCertificateDoesNotCoverDomain
@@ -233,18 +244,46 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig) api.DomainMonitoring
 	}
 	_, err = leaf.Verify(x509.VerifyOptions{
 		Intermediates: intermediates,
-		Roots:         monitorRoots(),
+		Roots:         roots,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	})
 	if err != nil {
 		result.FailureReason = failureX509ChainFailure
 		flags := chainStatusFlags(err)
 		result.ChainStatusFlags = &flags
+		var unknownAuthorityErr x509.UnknownAuthorityError
+		if errors.As(err, &unknownAuthorityErr) {
+			rootInStore := false
+			result.RootInTrustStore = &rootInStore
+		}
 		return result
 	}
 
+	rootInStore := true
+	result.RootInTrustStore = &rootInStore
 	result.Success = true
 	return result
+}
+
+// encodeChainPem renders the served chain, leaf first, as concatenated PEM
+// blocks. Returns "" past the defensive caps.
+func encodeChainPem(certs []*x509.Certificate) string {
+	if len(certs) > chainPemMaxCerts {
+		log.Printf("Not reporting certificate chain: %d certificates exceeds the cap of %d", len(certs), chainPemMaxCerts)
+		return ""
+	}
+
+	var builder strings.Builder
+	for _, cert := range certs {
+		builder.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
+	}
+
+	if builder.Len() > chainPemMaxBytes {
+		log.Printf("Not reporting certificate chain: %d bytes exceeds the cap of %d", builder.Len(), chainPemMaxBytes)
+		return ""
+	}
+
+	return builder.String()
 }
 
 // chainStatusFlags maps Go verification errors onto the .NET

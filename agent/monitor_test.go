@@ -10,6 +10,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"path/filepath"
@@ -33,11 +35,12 @@ func setupMonitorConfig(t *testing.T, monitors []config.DomainMonitorConfig) {
 	config.CurrentConfig = config.Config{DomainMonitors: monitors}
 }
 
-func setMonitorRootsOverride(t *testing.T, pool *x509.CertPool) {
-	t.Helper()
-	previous := monitorRootsOverride
-	t.Cleanup(func() { monitorRootsOverride = previous })
-	monitorRootsOverride = pool
+func pemEncodeCerts(certs ...*x509.Certificate) string {
+	var builder strings.Builder
+	for _, cert := range certs {
+		builder.Write(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
+	}
+	return builder.String()
 }
 
 // newSelfSignedCert generates a throwaway self-signed certificate. It cannot
@@ -75,6 +78,60 @@ func newSelfSignedCert(t *testing.T, dnsNames []string, ipAddresses []net.IP, no
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, parsed
 }
 
+// newCaSignedCert generates a throwaway CA and a leaf signed by it. The
+// returned tls.Certificate serves both, leaf first.
+func newCaSignedCert(t *testing.T, ipAddresses []net.IP) (tls.Certificate, *x509.Certificate, *x509.Certificate) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ca key: %v", err)
+	}
+
+	caTemplate := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "monitor-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDer, err := x509.CreateCertificate(rand.Reader, &caTemplate, &caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create ca certificate: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDer)
+	if err != nil {
+		t.Fatalf("parse ca certificate: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+
+	leafTemplate := x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "monitor-test-leaf"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  ipAddresses,
+	}
+	leafDer, err := x509.CreateCertificate(rand.Reader, &leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create leaf certificate: %v", err)
+	}
+	leafCert, err := x509.ParseCertificate(leafDer)
+	if err != nil {
+		t.Fatalf("parse leaf certificate: %v", err)
+	}
+
+	return tls.Certificate{Certificate: [][]byte{leafDer, caDer}, PrivateKey: leafKey}, leafCert, caCert
+}
+
 func startTLSListener(t *testing.T, cert tls.Certificate) int {
 	t.Helper()
 
@@ -103,12 +160,10 @@ func startTLSListener(t *testing.T, cert tls.Certificate) int {
 }
 
 func TestCheckDomainMonitor_SelfSignedUntrusted(t *testing.T) {
-	setMonitorRootsOverride(t, nil)
-
-	serverCert, _ := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	serverCert, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
 	port := startTLSListener(t, serverCert)
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, nil)
 
 	if result.Success {
 		t.Fatal("expected failure for untrusted self-signed certificate")
@@ -119,20 +174,25 @@ func TestCheckDomainMonitor_SelfSignedUntrusted(t *testing.T) {
 	if result.ChainStatusFlags == nil || *result.ChainStatusFlags != chainFlagUntrustedRoot {
 		t.Fatalf("ChainStatusFlags = %v, want %d", result.ChainStatusFlags, chainFlagUntrustedRoot)
 	}
+	if result.RootInTrustStore == nil || *result.RootInTrustStore {
+		t.Fatalf("RootInTrustStore = %v, want false", result.RootInTrustStore)
+	}
+	if result.ChainPem != pemEncodeCerts(leaf) {
+		t.Fatal("expected ChainPem to carry the served chain even when untrusted")
+	}
 }
 
-func TestCheckDomainMonitor_TrustedViaOverride(t *testing.T) {
+func TestCheckDomainMonitor_TrustedViaProvidedRoots(t *testing.T) {
 	notBefore := time.Now().Add(-time.Hour).Truncate(time.Second)
 	notAfter := time.Now().Add(24 * time.Hour).Truncate(time.Second)
 	serverCert, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, notBefore, notAfter)
 
 	pool := x509.NewCertPool()
 	pool.AddCert(leaf)
-	setMonitorRootsOverride(t, pool)
 
 	port := startTLSListener(t, serverCert)
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
 
 	if !result.Success {
 		t.Fatalf("expected success, got failure %q (flags %v)", result.FailureReason, result.ChainStatusFlags)
@@ -142,6 +202,12 @@ func TestCheckDomainMonitor_TrustedViaOverride(t *testing.T) {
 	}
 	if result.ChainStatusFlags != nil {
 		t.Fatalf("ChainStatusFlags = %d, want nil", *result.ChainStatusFlags)
+	}
+	if result.RootInTrustStore == nil || !*result.RootInTrustStore {
+		t.Fatalf("RootInTrustStore = %v, want true", result.RootInTrustStore)
+	}
+	if result.ChainPem != pemEncodeCerts(leaf) {
+		t.Fatal("expected ChainPem to carry the served chain")
 	}
 
 	sha1Sum := sha1.Sum(leaf.Raw)
@@ -169,12 +235,10 @@ func TestCheckDomainMonitor_TrustedViaOverride(t *testing.T) {
 }
 
 func TestCheckDomainMonitor_HostnameMismatchShortCircuitsBeforeChain(t *testing.T) {
-	setMonitorRootsOverride(t, nil)
-
-	serverCert, _ := newSelfSignedCert(t, []string{"wrong.internal"}, nil, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	serverCert, leaf := newSelfSignedCert(t, []string{"wrong.internal"}, nil, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
 	port := startTLSListener(t, serverCert)
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, nil)
 
 	if result.Success {
 		t.Fatal("expected failure for hostname mismatch")
@@ -190,6 +254,12 @@ func TestCheckDomainMonitor_HostnameMismatchShortCircuitsBeforeChain(t *testing.
 	if result.Thumbprint == "" || result.Expires == "" {
 		t.Fatal("expected leaf fields to be populated on hostname mismatch")
 	}
+	if result.RootInTrustStore != nil {
+		t.Fatalf("RootInTrustStore = %v, want nil when the chain check never ran", *result.RootInTrustStore)
+	}
+	if result.ChainPem != pemEncodeCerts(leaf) {
+		t.Fatal("expected ChainPem to carry the served chain on hostname mismatch")
+	}
 }
 
 func TestCheckDomainMonitor_ExpiredCert(t *testing.T) {
@@ -197,11 +267,10 @@ func TestCheckDomainMonitor_ExpiredCert(t *testing.T) {
 
 	pool := x509.NewCertPool()
 	pool.AddCert(leaf)
-	setMonitorRootsOverride(t, pool)
 
 	port := startTLSListener(t, serverCert)
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
 
 	if result.Success {
 		t.Fatal("expected failure for expired certificate")
@@ -211,6 +280,9 @@ func TestCheckDomainMonitor_ExpiredCert(t *testing.T) {
 	}
 	if result.ChainStatusFlags == nil || *result.ChainStatusFlags != chainFlagNotTimeValid {
 		t.Fatalf("ChainStatusFlags = %v, want %d", result.ChainStatusFlags, chainFlagNotTimeValid)
+	}
+	if result.RootInTrustStore != nil {
+		t.Fatalf("RootInTrustStore = %v, want nil for a non-trust chain failure", *result.RootInTrustStore)
 	}
 }
 
@@ -222,7 +294,7 @@ func TestCheckDomainMonitor_ClosedPort(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, nil)
 
 	if result.Success {
 		t.Fatal("expected failure for closed port")
@@ -232,6 +304,9 @@ func TestCheckDomainMonitor_ClosedPort(t *testing.T) {
 	}
 	if result.Thumbprint != "" || result.Expires != "" || result.ChainStatusFlags != nil {
 		t.Fatal("expected empty certificate fields for closed port")
+	}
+	if result.ChainPem != "" || result.RootInTrustStore != nil {
+		t.Fatal("expected no chain data for closed port")
 	}
 	if result.Timestamp == "" {
 		t.Fatal("expected timestamp to be set")
@@ -257,13 +332,60 @@ func TestCheckDomainMonitor_NonTLSListener(t *testing.T) {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port})
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, nil)
 
 	if result.Success {
 		t.Fatal("expected failure for non-TLS listener")
 	}
 	if result.FailureReason != failureUnableToRetrieveCertificate {
 		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureUnableToRetrieveCertificate)
+	}
+}
+
+func TestCheckDomainMonitor_ServedChainReportedInOrder(t *testing.T) {
+	serverCert, leaf, ca := newCaSignedCert(t, []net.IP{net.ParseIP("127.0.0.1")})
+
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+
+	port := startTLSListener(t, serverCert)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if !result.Success {
+		t.Fatalf("expected success, got failure %q (flags %v)", result.FailureReason, result.ChainStatusFlags)
+	}
+	if result.RootInTrustStore == nil || !*result.RootInTrustStore {
+		t.Fatalf("RootInTrustStore = %v, want true", result.RootInTrustStore)
+	}
+	if result.ChainPem != pemEncodeCerts(leaf, ca) {
+		t.Fatal("expected ChainPem to carry the served chain leaf-first")
+	}
+}
+
+func TestEncodeChainPem_Caps(t *testing.T) {
+	_, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+
+	if got := encodeChainPem([]*x509.Certificate{leaf}); got != pemEncodeCerts(leaf) {
+		t.Fatal("expected a small chain to encode as its PEM")
+	}
+
+	tooMany := make([]*x509.Certificate, chainPemMaxCerts+1)
+	for i := range tooMany {
+		tooMany[i] = leaf
+	}
+	if got := encodeChainPem(tooMany); got != "" {
+		t.Fatalf("encodeChainPem(%d certs) = %d bytes, want empty", len(tooMany), len(got))
+	}
+
+	// A single certificate bloated past the byte cap via a huge SAN list.
+	names := make([]string, 1000)
+	for i := range names {
+		names[i] = fmt.Sprintf("host%04d.%s.internal", i, strings.Repeat("a", 60))
+	}
+	_, bigLeaf := newSelfSignedCert(t, names, nil, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if got := encodeChainPem([]*x509.Certificate{bigLeaf}); got != "" {
+		t.Fatalf("encodeChainPem(oversized cert) = %d bytes, want empty", len(got))
 	}
 }
 

@@ -25,6 +25,10 @@ type DomainMonitoringResultUpdate struct {
 	SerialNumber     string `json:"serial_number,omitempty"`
 	FailureReason    string `json:"failure_reason,omitempty"`
 	ChainStatusFlags *int   `json:"chain_status_flags,omitempty"`
+	// The chain exactly as the server presented it, leaf first, as concatenated
+	// PEM blocks.
+	ChainPem         string `json:"chain_pem,omitempty"`
+	RootInTrustStore *bool  `json:"root_in_trust_store,omitempty"`
 }
 
 type DomainMonitoringResultBatch struct {
