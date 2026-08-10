@@ -58,17 +58,20 @@ func PollAndSync(forceSync bool) {
 		return
 	}
 
-	statuses := SynchronizeCertificates(configChanges, forceSync)
-	if len(statuses) > 0 {
-		if err := api.UpdateConfigStatus(statuses); err != nil {
-			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
-		}
-	}
-
+	// Private CA roots install before certificates deploy so that update
+	// commands (and the services they reload) can already trust chains
+	// issued by those CAs on the very first synchronization.
 	caStatuses := SynchronizePrivateCAs()
 	if len(caStatuses) > 0 {
 		if err := api.UpdatePrivateCaStatus(caStatuses); err != nil {
 			reportAgentError(fmt.Errorf("update private ca status: %w", err), "", "")
+		}
+	}
+
+	statuses := SynchronizeCertificates(configChanges, forceSync)
+	if len(statuses) > 0 {
+		if err := api.UpdateConfigStatus(statuses); err != nil {
+			reportAgentError(fmt.Errorf("update status: %w", err), "", "")
 		}
 	}
 
@@ -170,7 +173,7 @@ func PollForConfiguration(forceSync bool) (configChanges map[string]ConfigChange
 		configChanges = applyLockedConfigUpdates(response.UpdatedCertificateConfigurations)
 	} else {
 		configChanges = detectChangedConfigs(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
-		preserveRetryableStatuses(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
+		preserveUnresolvedStatuses(config.CurrentConfig.CertificateConfigurations, response.UpdatedCertificateConfigurations)
 		config.CurrentConfig.CertificateConfigurations = response.UpdatedCertificateConfigurations
 	}
 
@@ -224,7 +227,7 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 	return changedIDs
 }
 
-func preserveRetryableStatuses(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) {
+func preserveUnresolvedStatuses(previousConfigurations, incomingConfigurations []config.CertificateConfiguration) {
 	previousByID := make(map[string]config.CertificateConfiguration, len(previousConfigurations))
 	for _, cfg := range previousConfigurations {
 		if cfg.Id != "" {
@@ -237,7 +240,7 @@ func preserveRetryableStatuses(previousConfigurations, incomingConfigurations []
 		if !ok {
 			continue
 		}
-		if isRetryableStatus(prev.LastStatus) {
+		if isUnresolvedStatus(prev.LastStatus) {
 			incomingConfigurations[i].LastStatus = prev.LastStatus
 		}
 	}

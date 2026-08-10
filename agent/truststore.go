@@ -20,7 +20,7 @@ const (
 
 const (
 	privateCaRecheckInterval  = 24 * time.Hour
-	privateCaMessageMaxLength = 500
+	privateCaMessageMaxLength = 2500
 )
 
 // applyPrivateCAUpdates applies the server's private CA list as the
@@ -117,7 +117,9 @@ func SynchronizePrivateCAs() []api.AgentPrivateCaStatusUpdate {
 		ca.LastVerified = &verifiedAt
 		configDirty = true
 
-		if newStatus != ca.LastStatus {
+		// Like certificate statuses, a repeated error is re-sent so a
+		// retried failure refreshes the message on the backend.
+		if newStatus != ca.LastStatus || newStatus == caStatusErrorInstall {
 			statuses = append(statuses, api.AgentPrivateCaStatusUpdate{
 				CaId:             ca.Id,
 				Status:           newStatus,
@@ -138,10 +140,11 @@ func SynchronizePrivateCAs() []api.AgentPrivateCaStatusUpdate {
 	return statuses
 }
 
+// shouldCheckPrivateCa gates the trust store check. A failed install gets no
+// fast retry: like certificate configurations, it re-runs only when the CA's
+// configuration changes on the server (which clears LastVerified) or at the
+// normal recheck interval — never on every poll cycle.
 func shouldCheckPrivateCa(ca config.PrivateCAConfig, now time.Time) bool {
-	if ca.LastStatus == caStatusErrorInstall {
-		return true
-	}
 	if ca.LastVerified == nil {
 		return true
 	}

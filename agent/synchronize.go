@@ -20,7 +20,6 @@ import (
 
 const (
 	statusSynced         = "SYNCED"
-	statusPendingSync    = "PENDING_SYNC"
 	statusWaitingWindow  = "WAITING_FOR_WINDOW"
 	statusErrorUpdateCmd = "ERROR_UPDATE_CMD"
 	statusErrorGetCert   = "ERROR_GET_CERTS"
@@ -36,7 +35,7 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 		cfg := &config.CurrentConfig.CertificateConfigurations[i]
 		change := configChanges[cfg.Id]
 
-		if !change.Changed && !forceSync && !isRetryableStatus(cfg.LastStatus) {
+		if !change.Changed && !forceSync && !isPendingWorkStatus(cfg.LastStatus) {
 			continue
 		}
 		if change.Changed {
@@ -45,10 +44,16 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 
 		status := synchronizeCertificate(*cfg, change)
 		if status.ConfigId != "" {
-			if status.Status != "" && status.Status != cfg.LastStatus {
+			// Error statuses are re-sent every cycle, not just on transition,
+			// so a retried failure refreshes the message on the backend.
+			// Non-error statuses (e.g. WAITING_FOR_WINDOW on every poll) are
+			// only sent when the status changes.
+			if status.Status != "" && (status.Status != cfg.LastStatus || isErrorStatus(status.Status)) {
 				statuses = append(statuses, status)
-				cfg.LastStatus = status.Status
-				configDirty = true
+				if status.Status != cfg.LastStatus {
+					cfg.LastStatus = status.Status
+					configDirty = true
+				}
 			}
 		}
 	}
@@ -60,11 +65,27 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 	return statuses
 }
 
-func isRetryableStatus(status string) bool {
+// isUnresolvedStatus reports whether a locally tracked status must survive
+// the poll response replacing the configuration list. Error statuses persist
+// so a failure is never forgotten (or masked by a later no-op SYNCED);
+// WAITING_FOR_WINDOW persists because the work it describes hasn't happened
+// yet.
+func isUnresolvedStatus(status string) bool {
+	return isErrorStatus(status) || status == statusWaitingWindow
+}
+
+// isPendingWorkStatus reports whether a status re-enters synchronization even
+// though the configuration hasn't changed. Error statuses are deliberately
+// excluded: a failure sticks until the configuration is saved again on the
+// server or the certificate rotates, rather than re-running a failing update
+// command on every poll cycle.
+func isPendingWorkStatus(status string) bool {
+	return status == statusWaitingWindow
+}
+
+func isErrorStatus(status string) bool {
 	switch status {
 	case statusErrorUpdateCmd,
-		statusWaitingWindow,
-		statusPendingSync,
 		statusErrorGetCert,
 		statusErrorWriteCert,
 		statusErrorGeneral:
@@ -114,11 +135,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 		return synchronizeWindowsCertStoreCertificate(cfg, change)
 	}
 
-	retryUpdateOnly := cfg.LastStatus == statusErrorUpdateCmd || cfg.LastStatus == statusWaitingWindow
-	retryFull := cfg.LastStatus == statusPendingSync ||
-		cfg.LastStatus == statusErrorGetCert ||
-		cfg.LastStatus == statusErrorWriteCert ||
-		cfg.LastStatus == statusErrorGeneral
+	resumeApply := cfg.LastStatus == statusWaitingWindow
 
 	isPfx := cfg.IsPfx
 	isJks := cfg.IsJKS()
@@ -141,8 +158,8 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 		return status
 	}
 
-	shouldFetch := needsFetch || change.FormatChanged || retryFull
-	needsApply := needsFetch || change.Changed || retryUpdateOnly || retryFull
+	shouldFetch := needsFetch || change.FormatChanged
+	needsApply := needsFetch || change.Changed || resumeApply
 
 	if shouldFetch {
 		if isJks {
@@ -228,9 +245,7 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 			if !needsFetch && change.Changed {
 				log.Print("Running update cmd due to configuration change...")
 			}
-			if (retryUpdateOnly || retryFull) && cfg.LastStatus != statusWaitingWindow {
-				log.Print("Retrying update command due to previous failure...")
-			} else if (retryUpdateOnly || retryFull) && cfg.LastStatus == statusWaitingWindow {
+			if resumeApply {
 				log.Print("Running update command inside deploy window...")
 			}
 			if commandOutput, err := runUpdateCommand(cfg, getUpdateVariables(cfg.Id)); err != nil {
@@ -242,6 +257,13 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 			}
 		}
 	} else {
+		// Nothing was done, so a standing failure must not be overwritten
+		// with SYNCED — it sticks until the configuration is saved again on
+		// the server or the certificate rotates.
+		if isErrorStatus(cfg.LastStatus) {
+			log.Printf("Config %s unchanged since last failure (%s); leaving status as-is (config=%s).", cfg.Id, cfg.LastStatus, cfg.Id)
+			return api.AgentConfigStatusUpdate{}
+		}
 		log.Printf("Synchronization checks complete.  No action taken, everything up to date (config=%s).", cfg.Id)
 	}
 
