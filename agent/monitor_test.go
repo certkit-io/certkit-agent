@@ -378,8 +378,9 @@ func TestEncodeChainPem_Caps(t *testing.T) {
 		t.Fatalf("encodeChainPem(%d certs) = %d bytes, want empty", len(tooMany), len(got))
 	}
 
-	// A single certificate bloated past the byte cap via a huge SAN list.
-	names := make([]string, 1000)
+	// A single certificate bloated past the byte cap via a huge SAN list:
+	// each name adds ~108 PEM bytes, so 3000 names is ~326KB.
+	names := make([]string, 3000)
 	for i := range names {
 		names[i] = fmt.Sprintf("host%04d.%s.internal", i, strings.Repeat("a", 60))
 	}
