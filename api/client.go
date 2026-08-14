@@ -25,6 +25,7 @@ const (
 // unreachable. tlsCfg may be nil to use the default TLS configuration.
 func newAPITransport(tlsCfg *tls.Config) *http.Transport {
 	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
 		TLSClientConfig:       tlsCfg,
 		DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
 		TLSHandshakeTimeout:   dialTimeout,
