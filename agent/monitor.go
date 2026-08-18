@@ -88,7 +88,7 @@ func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 		}
 
 		if !existed {
-			log.Printf("Domain monitor %s (%s:%d) added by server", in.DomainId, in.DomainName, in.Port)
+			log.Printf("Host monitor %s (%s:%d) added by server", in.DomainId, in.DomainName, in.Port)
 			changed = true
 		} else if prev.DomainName != in.DomainName ||
 			prev.Port != in.Port ||
@@ -108,7 +108,7 @@ func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 			}
 		}
 		if !stillMonitored {
-			log.Printf("Domain monitor %s (%s:%d) no longer assigned by server; removing from config", prev.DomainId, prev.DomainName, prev.Port)
+			log.Printf("Host monitor %s (%s:%d) no longer assigned by server; removing from config", prev.DomainId, prev.DomainName, prev.Port)
 			changed = true
 		}
 	}
@@ -119,7 +119,7 @@ func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 
 	config.CurrentConfig.DomainMonitors = updated
 	if err := config.SaveConfig(&config.CurrentConfig, config.CurrentPath); err != nil {
-		log.Printf("Error saving config after domain monitor update: %v", err)
+		log.Printf("Error saving config after host monitor update: %v", err)
 	}
 }
 
@@ -133,6 +133,9 @@ func SynchronizeDomainMonitors() []api.DomainMonitoringResultUpdate {
 	for _, monitor := range config.CurrentConfig.DomainMonitors {
 		if !shouldCheckMonitor(monitor, now) {
 			continue
+		}
+		if checkNowPending(monitor) {
+			log.Printf("Check now requested for host monitor %s (%s:%d); performing monitoring check", monitor.DomainId, monitor.DomainName, monitor.Port)
 		}
 		if !rootsLoaded {
 			roots = monitorRoots()
@@ -169,11 +172,17 @@ func stampMonitorsChecked(results []api.DomainMonitoringResultUpdate) {
 	}
 }
 
+// checkNowPending reports whether the server has an explicit check-now request
+// the agent has not honored yet.
+func checkNowPending(monitor config.DomainMonitorConfig) bool {
+	return monitor.PendingCheckNow != "" && monitor.PendingCheckNow != monitor.LastCheckNowHonored
+}
+
 func shouldCheckMonitor(monitor config.DomainMonitorConfig, now time.Time) bool {
 	if monitor.LastChecked == nil {
 		return true
 	}
-	if monitor.PendingCheckNow != "" && monitor.PendingCheckNow != monitor.LastCheckNowHonored {
+	if checkNowPending(monitor) {
 		return true
 	}
 	return now.Sub(*monitor.LastChecked) >= domainMonitorRecheckInterval
