@@ -532,7 +532,7 @@ func TestSynchronizeCertificates_ForceSyncPreservesFailureWhenNothingToDo(t *tes
 	}
 }
 
-func TestSynchronizeCertificates_ForceSyncReportsSyncedEvenWhenUnchanged(t *testing.T) {
+func TestSynchronizeCertificates_ForceSyncStaysQuietWhenSyncedAndUnchanged(t *testing.T) {
 	previousConfig := config.CurrentConfig
 	previousPath := config.CurrentPath
 	t.Cleanup(func() {
@@ -541,8 +541,8 @@ func TestSynchronizeCertificates_ForceSyncReportsSyncedEvenWhenUnchanged(t *test
 	})
 
 	// The on-disk certificate matches and the local status is already SYNCED.
-	// A force sync must still report SYNCED so a server whose stored status
-	// has diverged (e.g. a stuck PENDING_SYNC) converges on agent restart.
+	// A force sync runs the synchronization checks but reports nothing when
+	// the outcome matches the last reported status.
 	certPath := filepath.Join(t.TempDir(), "cert.pem")
 	certSha1 := writeSelfSignedCertPEM(t, certPath)
 
@@ -562,11 +562,8 @@ func TestSynchronizeCertificates_ForceSyncReportsSyncedEvenWhenUnchanged(t *test
 
 	statuses := SynchronizeCertificates(nil, true)
 
-	if len(statuses) != 1 {
-		t.Fatalf("len(statuses) = %d, want 1 (got %+v)", len(statuses), statuses)
-	}
-	if statuses[0].Status != statusSynced {
-		t.Fatalf("Status = %q, want %q", statuses[0].Status, statusSynced)
+	if len(statuses) != 0 {
+		t.Fatalf("len(statuses) = %d, want 0 (unchanged SYNCED config must not re-report on force sync, got %+v)", len(statuses), statuses)
 	}
 }
 

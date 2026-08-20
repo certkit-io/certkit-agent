@@ -47,13 +47,8 @@ func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bo
 			// Error statuses are re-sent every cycle, not just on transition,
 			// so a retried failure refreshes the message on the backend.
 			// Non-error statuses (e.g. WAITING_FOR_WINDOW on every poll) are
-			// only sent when the status changes — except after a change or a
-			// forced sync, where the outcome is always reported so the server
-			// converges even if its stored status has diverged from ours (e.g.
-			// a stuck PENDING_SYNC). Standing errors are safe from this:
-			// a no-op sync returns an empty status for them above, so they
-			// never reach this filter.
-			if status.Status != "" && (status.Status != cfg.LastStatus || isErrorStatus(status.Status) || change.Changed || forceSync) {
+			// only sent when the status changes.
+			if status.Status != "" && (status.Status != cfg.LastStatus || isErrorStatus(status.Status)) {
 				statuses = append(statuses, status)
 				if status.Status != cfg.LastStatus {
 					cfg.LastStatus = status.Status
