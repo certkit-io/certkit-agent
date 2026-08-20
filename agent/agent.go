@@ -220,6 +220,11 @@ func applyLockedConfigUpdates(updated []config.CertificateConfiguration) map[str
 		if current.LatestCertificateSha1 != incoming.LatestCertificateSha1 {
 			current.LatestCertificateSha1 = incoming.LatestCertificateSha1
 			current.LastCertificateUpdateDate = incoming.LastCertificateUpdateDate
+			// Mirror the unlocked path, where the incoming configs replace the
+			// local list and reset LastStatus
+			if !isUnresolvedStatus(current.LastStatus) {
+				current.LastStatus = ""
+			}
 			changedIDs[current.Id] = ConfigChange{Changed: true}
 		}
 	}

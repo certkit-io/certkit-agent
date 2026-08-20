@@ -295,6 +295,79 @@ func TestPreserveUnresolvedStatuses_DoesNotPreserveSynced(t *testing.T) {
 	}
 }
 
+func TestApplyLockedConfigUpdates_RenewalClearsSyncedStatus(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+	})
+
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{Id: "a", LatestCertificateSha1: "abc", LastStatus: statusSynced},
+		},
+	}
+
+	result := applyLockedConfigUpdates([]config.CertificateConfiguration{
+		{Id: "a", LatestCertificateSha1: "def"},
+	})
+
+	assertConfigChange(t, result, "a", true, false, nil)
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != "" {
+		t.Fatalf("LastStatus = %q, want empty (SYNCED must reset so the post-renewal report isn't suppressed)", got)
+	}
+	if got := config.CurrentConfig.CertificateConfigurations[0].LatestCertificateSha1; got != "def" {
+		t.Fatalf("LatestCertificateSha1 = %q, want %q", got, "def")
+	}
+}
+
+func TestApplyLockedConfigUpdates_RenewalPreservesUnresolvedStatus(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+	})
+
+	for _, status := range []string{statusErrorUpdateCmd, statusWaitingWindow} {
+		config.CurrentConfig = config.Config{
+			CertificateConfigurations: []config.CertificateConfiguration{
+				{Id: "a", LatestCertificateSha1: "abc", LastStatus: status},
+			},
+		}
+
+		result := applyLockedConfigUpdates([]config.CertificateConfiguration{
+			{Id: "a", LatestCertificateSha1: "def"},
+		})
+
+		assertConfigChange(t, result, "a", true, false, nil)
+		if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != status {
+			t.Fatalf("LastStatus = %q, want %q preserved", got, status)
+		}
+	}
+}
+
+func TestApplyLockedConfigUpdates_NoSha1ChangeLeavesStatusAlone(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+	})
+
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{Id: "a", LatestCertificateSha1: "abc", LastStatus: statusSynced},
+		},
+	}
+
+	result := applyLockedConfigUpdates([]config.CertificateConfiguration{
+		{Id: "a", LatestCertificateSha1: "abc"},
+	})
+
+	if len(result) != 0 {
+		t.Fatalf("len(result) = %d, want 0", len(result))
+	}
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusSynced {
+		t.Fatalf("LastStatus = %q, want %q", got, statusSynced)
+	}
+}
+
 func TestIsUnresolvedStatus(t *testing.T) {
 	unresolved := []string{
 		statusErrorUpdateCmd,
@@ -456,6 +529,73 @@ func TestSynchronizeCertificates_ForceSyncPreservesFailureWhenNothingToDo(t *tes
 	}
 	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusErrorUpdateCmd {
 		t.Fatalf("LastStatus = %q, want %q preserved", got, statusErrorUpdateCmd)
+	}
+}
+
+func TestSynchronizeCertificates_ForceSyncStaysQuietWhenSyncedAndUnchanged(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	// The on-disk certificate matches and the local status is already SYNCED.
+	// A force sync runs the synchronization checks but reports nothing when
+	// the outcome matches the last reported status.
+	certPath := filepath.Join(t.TempDir(), "cert.pem")
+	certSha1 := writeSelfSignedCertPEM(t, certPath)
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        certPath,
+				AllInOne:              true,
+				LatestCertificateSha1: certSha1,
+				LastStatus:            statusSynced,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, true)
+
+	if len(statuses) != 0 {
+		t.Fatalf("len(statuses) = %d, want 0 (unchanged SYNCED config must not re-report on force sync, got %+v)", len(statuses), statuses)
+	}
+}
+
+func TestSynchronizeCertificates_NormalPollStaysQuietWhenSyncedAndUnchanged(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	certPath := filepath.Join(t.TempDir(), "cert.pem")
+	certSha1 := writeSelfSignedCertPEM(t, certPath)
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        certPath,
+				AllInOne:              true,
+				LatestCertificateSha1: certSha1,
+				LastStatus:            statusSynced,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, false)
+
+	if len(statuses) != 0 {
+		t.Fatalf("len(statuses) = %d, want 0 (unchanged SYNCED config must not chatter on normal polls, got %+v)", len(statuses), statuses)
 	}
 }
 
