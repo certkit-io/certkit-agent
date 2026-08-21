@@ -24,3 +24,20 @@ jobs:
           cache: true
       - run: go test ./...
       - run: go build ./cmd/certkit-agent/
+
+  # Drift guard for the Windows Server 2008 R2 / 2012 R2 build (see legacy/README.md).
+  # Go 1.20 is the last release that runs on those OSes; this job fails if someone uses a
+  # Go >= 1.21 language feature or stdlib API in the main tree.
+  legacy-build:
+    name: legacy build (go 1.20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.20.14"
+          cache: true
+          cache-dependency-path: legacy/go.legacy.sum
+      - run: go vet -modfile=legacy/go.legacy.mod ./...
+      - run: go test -modfile=legacy/go.legacy.mod ./...
+      - run: GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -modfile=legacy/go.legacy.mod ./cmd/certkit-agent/

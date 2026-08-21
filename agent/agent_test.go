@@ -12,7 +12,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"testing"
 	"time"
 
@@ -39,7 +39,7 @@ func assertConfigChange(t *testing.T, result map[string]ConfigChange, id string,
 	if change.FormatChanged != wantFormatChanged {
 		t.Fatalf("FormatChanged = %v, want %v", change.FormatChanged, wantFormatChanged)
 	}
-	if !slices.Equal(change.StaleFiles, wantStaleFiles) {
+	if !reflect.DeepEqual(change.StaleFiles, wantStaleFiles) {
 		t.Fatalf("StaleFiles = %v, want %v", change.StaleFiles, wantStaleFiles)
 	}
 }

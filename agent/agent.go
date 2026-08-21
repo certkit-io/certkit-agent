@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 	"log"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -319,7 +318,7 @@ func detectChangedConfigs(previousConfigurations, incomingConfigurations []confi
 		// Stale = previously owned but not in the incoming list.
 		var staleFiles []string
 		for _, prevPath := range prevPaths {
-			if !slices.Contains(incomingPaths, prevPath) {
+			if !containsString(incomingPaths, prevPath) {
 				staleFiles = append(staleFiles, prevPath)
 			}
 		}
@@ -409,4 +408,17 @@ func reportAgentError(err error, configId string, certificateId string) {
 	// usually a network problem already covered by the error we log below.
 	_ = api.ReportAgentError(err.Error(), configId, certificateId)
 	log.Printf("Error: %v", err)
+}
+
+// containsString reports whether list contains v.
+//
+// Deliberately not slices.Contains: the legacy Windows build (see legacy/README.md)
+// compiles with Go 1.20, which predates the slices package.
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
