@@ -27,6 +27,26 @@ function Get-Arch {
     }
 }
 
+function Assert-SupportedWindows {
+    # The agent is built with Go 1.21+, which requires Windows 10 / Windows Server 2016 or later.
+    # On older releases (e.g. Server 2008 R2 / 2012 R2) the binary crashes at startup with a cryptic
+    # "Exception 0xc0000005 ... runtime.asmstdcall" before any of our code runs, so fail early instead.
+    $osVersion = $null
+    $osCaption = "unknown Windows version"
+    try {
+        # WMI reports the true version; [Environment]::OSVersion can be capped at 6.2 on unmanifested hosts.
+        $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+        $osVersion = [version]$os.Version
+        if ($os.Caption) { $osCaption = $os.Caption.Trim() }
+    } catch {
+        $osVersion = [Environment]::OSVersion.Version
+    }
+
+    if ($osVersion.Major -lt 10) {
+        throw "CertKit Agent requires Windows 10 / Windows Server 2016 or later. Detected: $osCaption ($osVersion)."
+    }
+}
+
 function Get-LatestReleaseTag {
     $uri = "$GithubProxyBase/github-api-proxy/repos/$Owner/$Repo/releases/latest"
     $latest = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "certkit-agent-installer" }
@@ -135,6 +155,7 @@ function Register-WindowsUninstallEntry {
 }
 
 Assert-Admin
+Assert-SupportedWindows
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
