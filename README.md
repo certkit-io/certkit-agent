@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/certkit-io/certkit-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/certkit-io/certkit-agent/actions/workflows/ci.yml) [![Release](https://github.com/certkit-io/certkit-agent/actions/workflows/release.yml/badge.svg)](https://github.com/certkit-io/certkit-agent/actions/workflows/release.yml)
 
-`certkit-agent` runs on your host, registers with CertKit, polls for assigned certificate configuration, deploys certificates, runs optional reload commands, and reports inventory.
+`certkit-agent` runs on your host, registers with CertKit, polls for assigned certificate configuration, deploys certificates, runs optional reload commands, reports inventory, and monitors TLS certificates on internal hosts the CertKit cloud cannot reach.
 
 ## Documentation
 

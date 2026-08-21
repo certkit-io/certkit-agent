@@ -24,6 +24,7 @@ type Config struct {
 	Agent                     *AgentCreds                `json:"agent,omitempty"`
 	CertificateConfigurations []CertificateConfiguration `json:"certificate_configurations,omitempty"`
 	PrivateCAs                []PrivateCAConfig          `json:"private_cas,omitempty"`
+	DomainMonitors            []DomainMonitorConfig      `json:"domain_monitors,omitempty"`
 	Keystore                  *KeystoreConfig            `json:"keystore,omitempty"`
 	InventorySent             bool                       `json:"inventory_sent,omitempty"`
 	Auth                      *AuthCreds                 `json:"auth,omitempty"`
@@ -78,6 +79,15 @@ type PrivateCAConfig struct {
 	LastStatus       string     `json:"last_status,omitempty"`
 	InstalledByAgent bool       `json:"installed_by_agent,omitempty"`
 	LastVerified     *time.Time `json:"last_verified,omitempty"`
+}
+
+type DomainMonitorConfig struct {
+	DomainId            string     `json:"domain_id"`
+	DomainName          string     `json:"domain_name"`
+	Port                int        `json:"port"`
+	LastChecked         *time.Time `json:"last_checked,omitempty"`
+	LastCheckNowHonored string     `json:"last_check_now_honored,omitempty"` // server's check_requested_date we already acted on
+	PendingCheckNow     string     `json:"pending_check_now,omitempty"`      // check_requested_date from the latest poll response
 }
 
 func (c CertificateConfiguration) UsesWindowsCertStore() bool {

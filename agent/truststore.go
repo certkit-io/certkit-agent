@@ -23,6 +23,11 @@ const (
 	privateCaMessageMaxLength = 2500
 )
 
+// privateCaProcessStart marks when this agent process began. A LastVerified
+// stamped by a previous process run is treated as stale, so every restart
+// re-verifies each private CA against the OS trust store.
+var privateCaProcessStart = time.Now()
+
 // applyPrivateCAUpdates applies the server's private CA list as the
 // authoritative set: entries not present are dropped from config (the root is
 // never uninstalled from the OS trust store). Status fields are preserved for
@@ -142,10 +147,13 @@ func SynchronizePrivateCAs() []api.AgentPrivateCaStatusUpdate {
 
 // shouldCheckPrivateCa gates the trust store check. A failed install gets no
 // fast retry: like certificate configurations, it re-runs only when the CA's
-// configuration changes on the server (which clears LastVerified) or at the
-// normal recheck interval — never on every poll cycle.
+// configuration changes on the server (which clears LastVerified), at the
+// normal recheck interval, or once after an agent restart.
 func shouldCheckPrivateCa(ca config.PrivateCAConfig, now time.Time) bool {
 	if ca.LastVerified == nil {
+		return true
+	}
+	if ca.LastVerified.Before(privateCaProcessStart) {
 		return true
 	}
 	return now.Sub(*ca.LastVerified) >= privateCaRecheckInterval

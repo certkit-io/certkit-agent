@@ -11,6 +11,11 @@ func TestShouldCheckPrivateCa(t *testing.T) {
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	recent := now.Add(-time.Minute)
 	stale := now.Add(-privateCaRecheckInterval)
+	beforeStart := now.Add(-2 * time.Hour)
+
+	prevProcessStart := privateCaProcessStart
+	privateCaProcessStart = now.Add(-time.Hour)
+	t.Cleanup(func() { privateCaProcessStart = prevProcessStart })
 
 	tests := []struct {
 		name string
@@ -39,6 +44,14 @@ func TestShouldCheckPrivateCa(t *testing.T) {
 			name: "recent install failure",
 			ca:   config.PrivateCAConfig{LastStatus: caStatusErrorInstall, LastVerified: &recent},
 			want: false,
+		},
+		{
+			// LastVerified persists in the config file, so after a restart it
+			// predates process start: the CA must be re-verified even though
+			// the recheck interval hasn't elapsed.
+			name: "verified before process start",
+			ca:   config.PrivateCAConfig{LastStatus: caStatusTrusted, LastVerified: &beforeStart},
+			want: true,
 		},
 	}
 
