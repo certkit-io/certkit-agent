@@ -42,6 +42,18 @@ try {
 
     $ldflags = "-s -w -X main.version=$Version -X main.commit=$Commit -X main.date=$BuildDate"
 
+    # Windows resources (.syso): icon + VERSIONINFO + manifest. The generated
+    # file is suffixed _windows_amd64 so only the windows build links it.
+    $verNumeric = $Version.TrimStart("v")
+    if ($verNumeric -notmatch '^\d+\.\d+\.\d+$') {
+        $verNumeric = "0.0.0"
+    }
+    Write-Host "Generating Windows resources (go-winres, version $verNumeric)"
+    go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --product-version $verNumeric --file-version $verNumeric --out cmd/certkit-agent/rsrc
+    if ($LASTEXITCODE -ne 0) {
+        throw "go-winres failed with exit code $LASTEXITCODE"
+    }
+
     function Build-One {
         param(
             [Parameter(Mandatory = $true)][string]$GoOs,

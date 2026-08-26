@@ -1,12 +1,14 @@
 Param(
     [string]$Version = $env:VERSION,
     [string]$ServiceName = "certkit-agent",
-    [string]$InstallDir = "C:\\Program Files\\CertKit",
-    [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json",
+    [string]$InstallDir = "C:\Program Files\CertKit",
+    [string]$ConfigPath = "C:\ProgramData\CertKit\certkit-agent\config.json",
     [string]$Owner = "certkit-io",
     [string]$Repo = "certkit-agent",
     # Github is blocked on many customer networks, so downloads go through the CertKit github proxy
-    [string]$GithubProxyBase = "https://app.certkit.io"
+    [string]$GithubProxyBase = "https://app.certkit.io",
+    # Use the legacy raw-binary install path instead of the MSI
+    [switch]$Binary
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +41,80 @@ function Get-LatestReleaseTag {
     return $latest.tag_name
 }
 
+function Assert-ChecksumOk {
+    param(
+        [Parameter(Mandatory = $true)][string]$ShaFilePath,
+        [Parameter(Mandatory = $true)][string]$AssetName,
+        [Parameter(Mandatory = $true)][string]$FilePath
+    )
+
+    $shaLine = Get-Content $ShaFilePath | Where-Object { $_ -match [regex]::Escape($AssetName) } | Select-Object -First 1
+    if (-not $shaLine) {
+        throw "Checksum entry not found for $AssetName"
+    }
+    $expected = ($shaLine -split "\s+")[0].ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $FilePath).Hash.ToLowerInvariant()
+    if ($expected -ne $actual) {
+        throw "Checksum mismatch for $AssetName"
+    }
+}
+
+function Test-MsiProductInstalled {
+    # An MSI install registers under a GUID-named uninstall key; the legacy
+    # script wrote a literal "CertKit Agent" key instead.
+    $roots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path $root)) { continue }
+        foreach ($key in (Get-ChildItem -Path $root -ErrorAction SilentlyContinue)) {
+            if ($key.PSChildName -notmatch '^\{[0-9A-Fa-f\-]+\}$') { continue }
+            $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
+            if ($props.DisplayName -eq "CertKit Agent") { return $true }
+        }
+    }
+    return $false
+}
+
+function Invoke-LegacyMigration {
+    param(
+        [Parameter(Mandatory = $true)][string]$ServiceName,
+        [Parameter(Mandatory = $true)][string]$InstallDir
+    )
+
+    Write-Host "Migrating existing script-based install to the MSI"
+    Write-Host "Existing configuration is preserved; no new REGISTRATION_KEY is needed."
+
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 3
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+        throw "Service '$ServiceName' failed to stop for migration."
+    }
+
+    # The MSI must own the service; installing over a pre-existing service it
+    # did not create misbehaves, so delete the script-created one first.
+    & sc.exe delete $ServiceName | Out-Null
+    Start-Sleep -Seconds 1
+
+    $legacyArp = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
+    if (Test-Path $legacyArp) {
+        Remove-Item -Path $legacyArp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Older installs baked doubled backslashes into paths; normalize before use.
+    $binDir = Join-Path ($InstallDir -replace '\\\\', '\') "bin"
+    foreach ($name in @("uninstall.ps1", "certkit-agent.old.exe", "certkit-agent.new.exe")) {
+        $p = Join-Path $binDir $name
+        if (Test-Path $p) {
+            Remove-Item -Path $p -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# --- Legacy raw-binary install path (also used with -Binary) -----------------
+
 function Write-LocalUninstallScript {
     param(
         [Parameter(Mandatory = $true)]
@@ -48,8 +124,8 @@ function Write-LocalUninstallScript {
     $script = @'
 Param(
     [string]$ServiceName = "certkit-agent",
-    [string]$InstallDir = "C:\\Program Files\\CertKit",
-    [string]$ConfigPath = "C:\\ProgramData\\CertKit\\certkit-agent\\config.json"
+    [string]$InstallDir = "C:\Program Files\CertKit",
+    [string]$ConfigPath = "C:\ProgramData\CertKit\certkit-agent\config.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -64,7 +140,7 @@ function Assert-Admin {
 
 Assert-Admin
 
-$binPath = Join-Path $InstallDir "bin\\certkit-agent.exe"
+$binPath = Join-Path $InstallDir "bin\certkit-agent.exe"
 if (Test-Path $binPath) {
     & $binPath uninstall --service-name $ServiceName --config $ConfigPath
 } else {
@@ -86,7 +162,7 @@ if (Test-Path $InstallDir) {
     Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-$regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CertKit Agent"
+$regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
 if (Test-Path $regPath) {
     Remove-Item -Path $regPath -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -113,7 +189,7 @@ function Register-WindowsUninstallEntry {
         [string]$Version
     )
 
-    $regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CertKit Agent"
+    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
     $displayVersion = $Version.TrimStart("v")
     $escapedUninstallScriptPath = $UninstallScriptPath.Replace('"', '""')
     $escapedServiceName = $ServiceName.Replace('"', '""')
@@ -134,49 +210,28 @@ function Register-WindowsUninstallEntry {
     Set-ItemProperty -Path $regPath -Name "InstallDate" -Value (Get-Date).ToString("yyyyMMdd")
 }
 
-Assert-Admin
+function Install-LegacyBinary {
+    param(
+        [Parameter(Mandatory = $true)][string]$Arch,
+        [Parameter(Mandatory = $true)][string]$BaseUrl,
+        [Parameter(Mandatory = $true)][string]$TempDir
+    )
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $binName = "certkit-agent"
+    $assetBin = "${binName}_windows_${Arch}.exe"
+    $assetSha = "${binName}_SHA256SUMS.txt"
 
-Write-Host ""
-Write-Host "Installing CertKit Agent..."
-Write-Host ""
-
-$arch = Get-Arch
-$binName = "certkit-agent"
-$assetBin = "${binName}_windows_${arch}.exe"
-$assetSha = "${binName}_SHA256SUMS.txt"
-
-if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = Get-LatestReleaseTag
-}
-
-Write-Host "Using release tag: $Version"
-
-$baseUrl = "$GithubProxyBase/github-proxy/$Owner/$Repo/releases/download/$Version"
-$tmp = Join-Path $env:TEMP ("certkit-agent-" + [guid]::NewGuid().ToString())
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-try {
-    $binPath = Join-Path $tmp $assetBin
-    $shaPath = Join-Path $tmp $assetSha
+    $binPath = Join-Path $TempDir $assetBin
+    $shaPath = Join-Path $TempDir $assetSha
 
     Write-Host "Downloading $assetBin"
-    Invoke-WebRequest -Uri "$baseUrl/$assetBin" -OutFile $binPath
+    Invoke-WebRequest -Uri "$BaseUrl/$assetBin" -OutFile $binPath
 
     Write-Host "Downloading $assetSha"
-    Invoke-WebRequest -Uri "$baseUrl/$assetSha" -OutFile $shaPath
+    Invoke-WebRequest -Uri "$BaseUrl/$assetSha" -OutFile $shaPath
 
     Write-Host "Verifying checksum"
-    $shaLine = Get-Content $shaPath | Where-Object { $_ -match [regex]::Escape($assetBin) } | Select-Object -First 1
-    if (-not $shaLine) {
-        throw "Checksum entry not found for $assetBin"
-    }
-    $expected = ($shaLine -split "\s+")[0].ToLowerInvariant()
-    $actual = (Get-FileHash -Algorithm SHA256 -Path $binPath).Hash.ToLowerInvariant()
-    if ($expected -ne $actual) {
-        throw "Checksum mismatch for $assetBin"
-    }
+    Assert-ChecksumOk -ShaFilePath $shaPath -AssetName $assetBin -FilePath $binPath
 
     $binDir = Join-Path $InstallDir "bin"
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
@@ -226,6 +281,126 @@ try {
     $runningService = Get-Service -Name $ServiceName -ErrorAction Stop
     if ($runningService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
         throw "Service '$ServiceName' failed to start."
+    }
+}
+
+# --- MSI install path (default) ----------------------------------------------
+
+function Install-Msi {
+    param(
+        [Parameter(Mandatory = $true)][string]$Arch,
+        [Parameter(Mandatory = $true)][string]$BaseUrl,
+        [Parameter(Mandatory = $true)][string]$TempDir
+    )
+
+    if ($Arch -ne "amd64") {
+        Write-Host "Note: installing the amd64 MSI on $Arch (runs under x64 emulation)."
+    }
+
+    $assetMsi = "certkit-agent_windows_amd64.msi"
+    $assetSha = "certkit-agent_SHA256SUMS.txt"
+
+    # Fail fast before downloading anything.
+    if (-not (Test-Path $ConfigPath) -and [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
+        throw "REGISTRATION_KEY is required for first install when config is missing."
+    }
+
+    $msiPath = Join-Path $TempDir $assetMsi
+    $shaPath = Join-Path $TempDir $assetSha
+
+    Write-Host "Downloading $assetMsi"
+    Invoke-WebRequest -Uri "$BaseUrl/$assetMsi" -OutFile $msiPath
+
+    Write-Host "Downloading $assetSha"
+    Invoke-WebRequest -Uri "$BaseUrl/$assetSha" -OutFile $shaPath
+
+    Write-Host "Verifying checksum"
+    Assert-ChecksumOk -ShaFilePath $shaPath -AssetName $assetMsi -FilePath $msiPath
+
+    # A service that exists without an MSI product registration was created by
+    # the legacy script (or `certkit-agent install` by hand); the MSI must not
+    # install over it.
+    $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingService -and -not (Test-MsiProductInstalled)) {
+        Invoke-LegacyMigration -ServiceName $ServiceName -InstallDir $InstallDir
+    }
+
+    $logPath = Join-Path $env:TEMP "certkit-agent-msi-install.log"
+    $msiArgs = @(
+        "/i", "`"$msiPath`"",
+        "/qn", "/norestart",
+        "/l*v", "`"$logPath`""
+    )
+    if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {
+        $msiArgs += "REGISTRATIONKEY=`"$($env:REGISTRATION_KEY)`""
+    }
+    $normalizedInstallDir = $InstallDir -replace '\\\\', '\'
+    if ($normalizedInstallDir -ne "C:\Program Files\CertKit") {
+        $msiArgs += "CERTKITDIR=`"$normalizedInstallDir`""
+    }
+
+    Write-Host "Installing CertKit Agent MSI (log: $logPath)"
+    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
+    if ($proc.ExitCode -eq 3010) {
+        Write-Host "Install succeeded; Windows recommends a reboot to complete (exit code 3010)."
+    } elseif ($proc.ExitCode -ne 0) {
+        throw "MSI install failed with exit code $($proc.ExitCode). See log: $logPath"
+    }
+
+    # The MSI starts the service without waiting; verify it actually runs.
+    $deadline = (Get-Date).AddSeconds(20)
+    $running = $false
+    while ((Get-Date) -lt $deadline) {
+        $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running) {
+            $running = $true
+            break
+        }
+        if ($svc -and $svc.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $running) {
+        throw "Service '$ServiceName' failed to start. MSI log: $logPath"
+    }
+}
+
+# --- Main --------------------------------------------------------------------
+
+Assert-Admin
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+Write-Host ""
+Write-Host "Installing CertKit Agent..."
+Write-Host ""
+
+$arch = Get-Arch
+
+if (-not $Binary) {
+    # The MSI bakes in the service name and config path; only -InstallDir can
+    # be overridden on the MSI path. Use -Binary for the other overrides.
+    if ($ServiceName -ne "certkit-agent" -or ($ConfigPath -replace '\\\\', '\') -ne "C:\ProgramData\CertKit\certkit-agent\config.json") {
+        throw "Custom -ServiceName / -ConfigPath values require the -Binary install path."
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = Get-LatestReleaseTag
+}
+
+Write-Host "Using release tag: $Version"
+
+$baseUrl = "$GithubProxyBase/github-proxy/$Owner/$Repo/releases/download/$Version"
+$tmp = Join-Path $env:TEMP ("certkit-agent-" + [guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+try {
+    if ($Binary) {
+        Install-LegacyBinary -Arch $arch -BaseUrl $baseUrl -TempDir $tmp
+    } else {
+        Install-Msi -Arch $arch -BaseUrl $baseUrl -TempDir $tmp
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:REGISTRATION_KEY)) {

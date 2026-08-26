@@ -109,6 +109,9 @@ $env:REGISTRATION_KEY="your.registration_key_here"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
+The script downloads and installs the CertKit Agent MSI.  To use the legacy
+raw-binary install path instead, download the script and run it with `-Binary`.
+
 Default paths and service name:
 - Service: `certkit-agent`
 - Binary: `C:\Program Files\CertKit\bin\certkit-agent.exe`
@@ -117,6 +120,18 @@ Default paths and service name:
 - Log file: `C:\ProgramData\CertKit\certkit-agent\certkit-agent.log`
 
 The installer also registers an Add/Remove Programs entry (`CertKit Agent`).
+
+### MSI Install (GPO / Intune / SCCM)
+
+The MSI can also be deployed directly, for example fleet-wide via GPO or Intune:
+
+```powershell
+msiexec /i certkit-agent_windows_amd64.msi /qn /norestart REGISTRATIONKEY="your.registration_key_here"
+```
+
+`REGISTRATIONKEY` is only required on first install; upgrades and reinstalls over an
+existing configuration do not need it. The MSI upgrades in place (same or older versions
+are blocked; newer MSIs replace older installs while preserving configuration).
 
 ### CLI Install Patterns
 
@@ -161,14 +176,18 @@ certkit-agent.exe validate --config "C:\ProgramData\CertKit\certkit-agent\config
 
 Preferred: use Add/Remove Programs (`Settings -> Apps -> Installed apps -> CertKit Agent -> Uninstall`).
 
-PowerShell via ARP uninstall string:
+Silent uninstall of an MSI-based install:
 
 ```powershell
-$app = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $app.UninstallString -Verb RunAs -Wait
+$app = Get-CimInstance Win32_Product -Filter "Name = 'CertKit Agent'"
+msiexec /x $app.IdentifyingNumber /qn /norestart
 ```
 
-CLI fallback:
+Uninstalling removes the service, the event log source, the agent's configuration and
+identity (`%ProgramData%\CertKit`), and performs a best-effort unregister call to CertKit.
+Deployed certificates and imported CA roots are intentionally left in place.
+
+CLI fallback (legacy script-based installs):
 
 ```powershell
 & "C:\Program Files\CertKit\bin\certkit-agent.exe" uninstall

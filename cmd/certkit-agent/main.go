@@ -4,6 +4,8 @@
 //
 //	certkit-agent install
 //	certkit-agent uninstall
+//	certkit-agent bootstrap-config  (windows, used by the MSI installer)
+//	certkit-agent msi-cleanup       (windows, used by the MSI installer)
 //	certkit-agent run
 //	certkit-agent register
 //	certkit-agent validate
@@ -61,6 +63,10 @@ func main() {
 		installCmd(os.Args[2:])
 	case "uninstall":
 		uninstallCmd(os.Args[2:])
+	case "bootstrap-config":
+		bootstrapConfigCmd(os.Args[2:])
+	case "msi-cleanup":
+		msiCleanupCmd(os.Args[2:])
 	case "run":
 		runCmd(os.Args[2:])
 	case "register":

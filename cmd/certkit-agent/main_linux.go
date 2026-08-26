@@ -43,6 +43,14 @@ func uninstallCmd(args []string) {
 	agentinstall.UninstallLinux(args, defaultServiceName)
 }
 
+func bootstrapConfigCmd(_ []string) {
+	log.Fatal("bootstrap-config is only supported on Windows (used by the MSI installer)")
+}
+
+func msiCleanupCmd(_ []string) {
+	log.Fatal("msi-cleanup is only supported on Windows (used by the MSI installer)")
+}
+
 func runCmd(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configPath := fs.String("config", defaultConfigPath, "path to config.json")
