@@ -111,7 +111,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist\msi | Out-Null
-          wix build packaging\windows\Package.wxs `
+          wix build packaging\windows\Package.wxs packaging\windows\CertKitUI.wxs `
             -arch x64 `
             -d Version=${{ steps.version.outputs.version }} `
             -d AgentExe=dist\bin\certkit-agent_windows_amd64.exe `

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom WixUI dialog set for the CertKit Agent MSI.
+
+  This is the documented WiX customization route: a copy of the stock
+  WixUI_InstallDir sequence (base fragment merged with its X64 overlay, from
+  wixtoolset/wix v6.0.2 src/ext/UI/wixlib/WixUI_InstallDir.wxs) with one
+  addition - a RegistrationKeyDlg between InstallDirDlg and VerifyReadyDlg.
+
+  The key page only appears on machines with no existing agent config
+  (CONFIGEXISTS is set by an AppSearch file search in Package.wxs); upgrades,
+  migrations, and maintenance flows never see it. Next is blocked until a key
+  is entered, since a fresh install without one would fail and roll back at
+  the BootstrapConfig action anyway.
+
+  First-time install sequence (no config):
+    WelcomeDlg -> LicenseAgreementDlg -> InstallDirDlg -> RegistrationKeyDlg -> VerifyReadyDlg
+  First-time install sequence (config already present):
+    WelcomeDlg -> LicenseAgreementDlg -> InstallDirDlg -> VerifyReadyDlg
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="CertKitUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="LicenseAccepted = &quot;1&quot;" />
+
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="3" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="RegistrationKeyDlg" Order="4" Condition="NOT CONFIGEXISTS" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="5" Condition="CONFIGEXISTS" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2" />
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="CheckTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SetTargetPath" Value="[_BrowseProperty]" Order="3" />
+      <Publish Dialog="BrowseDlg" Control="OK" Event="EndDialog" Value="Return" Order="4" />
+
+      <Publish Dialog="RegistrationKeyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" />
+      <Publish Dialog="RegistrationKeyDlg" Control="Next" Event="SpawnDialog" Value="RegKeyRequiredDlg" Order="1" Condition="NOT REGISTRATIONKEY" />
+      <Publish Dialog="RegistrationKeyDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="2" Condition="REGISTRATIONKEY" />
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="RegistrationKeyDlg" Order="1" Condition="NOT Installed AND NOT CONFIGEXISTS" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="1" Condition="NOT Installed AND CONFIGEXISTS" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2" Condition="Installed AND NOT PATCH" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="Installed AND PATCH" />
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg" />
+
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <Property Id="ARPNOMODIFY" Value="1" />
+
+      <Dialog Id="RegistrationKeyDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Registration Key" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Connect this agent to your CertKit account." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <Control Id="KeyLabel" Type="Text" X="20" Y="60" Width="330" Height="12" NoPrefix="no" Text="&amp;Registration key:" />
+        <Control Id="KeyEdit" Type="Edit" X="20" Y="74" Width="330" Height="17" Property="REGISTRATIONKEY" Text="{200}" />
+        <Control Id="HelpText" Type="Text" X="20" Y="102" Width="330" Height="45" NoPrefix="yes"
+                 Text="Find your registration key in the CertKit app at https://app.certkit.io. It is only needed the first time the agent is installed on this machine; upgrades keep the existing configuration." />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&lt; &amp;Back" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Next &gt;" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="RegKeyRequiredDlg" Width="284" Height="83" Title="[ProductName] Setup">
+        <Control Id="Text" Type="Text" X="15" Y="12" Width="254" Height="35" NoPrefix="yes"
+                 Text="A registration key is required for the first install on this machine." />
+        <Control Id="OK" Type="PushButton" X="114" Y="55" Width="56" Height="17" Default="yes" Cancel="yes" Text="OK">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+</Wix>

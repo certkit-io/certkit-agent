@@ -3,7 +3,7 @@
   CertKit Agent MSI (WiX v5+ authoring). See MSI-PLAN.md for the full design.
 
   Build (from the repo root):
-    wix build packaging\windows\Package.wxs -arch x64
+    wix build packaging\windows\Package.wxs packaging\windows\CertKitUI.wxs -arch x64
       -d Version=<a.b.c>  (tag minus the leading "v"; must be numeric a.b.c)
       -d AgentExe=dist\bin\certkit-agent_windows_amd64.exe
       -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
@@ -36,7 +36,7 @@
     <Icon Id="CertKitIcon" SourceFile="assets\certkit.ico"/>
     <Property Id="ARPPRODUCTICON" Value="CertKitIcon"/>
     <Property Id="ARPHELPLINK" Value="https://certkit.io"/>
-    <!-- ARPNOMODIFY=1 is already set by WixUI_InstallDir. -->
+    <!-- ARPNOMODIFY=1 is set inside CertKitUI (as in stock WixUI_InstallDir). -->
     <!-- Repair would clobber a self-updated (newer) agent exe, so disable it. -->
     <Property Id="ARPNOREPAIR" Value="1"/>
 
@@ -49,8 +49,20 @@
          name; hide that one too or the key would leak into /l*v logs. -->
     <Property Id="BootstrapConfig" Hidden="yes"/>
 
-    <!-- Installer UI (interactive installs only; /qn skips it) -->
-    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="CERTKITDIR"/>
+    <!-- Set by AppSearch before the UI runs: present when this machine
+         already has an agent config, in which case the wizard skips the
+         registration-key page (upgrades/migrations need no key). -->
+    <Property Id="CONFIGEXISTS">
+      <DirectorySearch Id="CertKitConfigDirSearch" Path="[CommonAppDataFolder]CertKit\certkit-agent" Depth="0">
+        <FileSearch Id="CertKitConfigFileSearch" Name="config.json"/>
+      </DirectorySearch>
+    </Property>
+
+    <!-- Installer UI (interactive installs only; /qn skips it). CertKitUI is
+         the stock WixUI_InstallDir flow plus a registration-key page - see
+         CertKitUI.wxs. -->
+    <UIRef Id="CertKitUI"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="CERTKITDIR"/>
     <WixVariable Id="WixUILicenseRtf" Value="packaging\windows\license.rtf"/>
     <WixVariable Id="WixUIBannerBmp" Value="packaging\windows\banner.bmp"/>
     <WixVariable Id="WixUIDialogBmp" Value="packaging\windows\dialog.bmp"/>
