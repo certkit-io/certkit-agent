@@ -215,17 +215,33 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 
 	// InsecureSkipVerify captures the certificate even when it is invalid;
 	// SAN coverage and chain trust are judged explicitly below.
+	// VerifyPeerCertificate stashes the served chain the moment it arrives:
+	// some endpoints (e.g. SIP-TLS gateways requiring mutual TLS) send their
+	// certificate and then abort the handshake because we present no client
+	// certificate. The chain is still worth reporting in that case.
+	var peerCertificates []*x509.Certificate
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         serverName,
 		MinVersion:         tls.VersionTLS12,
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			certs := make([]*x509.Certificate, 0, len(rawCerts))
+			for _, raw := range rawCerts {
+				cert, err := x509.ParseCertificate(raw)
+				if err != nil {
+					return err
+				}
+				certs = append(certs, cert)
+			}
+			peerCertificates = certs
+			return nil
+		},
 	})
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.Handshake(); err != nil && len(peerCertificates) == 0 {
 		result.FailureReason = failureUnableToRetrieveCertificate
 		return result
 	}
 
-	peerCertificates := tlsConn.ConnectionState().PeerCertificates
 	if len(peerCertificates) == 0 {
 		result.FailureReason = failureUnableToRetrieveCertificate
 		return result
