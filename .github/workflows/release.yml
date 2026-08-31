@@ -41,9 +41,12 @@ jobs:
   package-windows:
     runs-on: windows-latest
     needs: build
+    # The federated credential in Entra matches this environment
+    # (subject: repo:certkit-io/certkit-agent:environment:release).
+    environment: release
     permissions:
       contents: read
-      id-token: write # OIDC for Azure Trusted Signing (unused while signing is disabled)
+      id-token: write # OIDC for Azure Artifact Signing
     steps:
       - uses: actions/checkout@v5
 
@@ -62,22 +65,9 @@ jobs:
           }
           "version=$ver" >> $env:GITHUB_OUTPUT
 
-      # ------------------------------------------------------------------
-      # Code signing - PLACEHOLDER, disabled until a signing provider is
-      # onboarded (see MSI-PLAN.md section 2). To enable Azure Trusted
-      # Signing:
-      #   1. Create the Trusted Signing account + certificate profile in
-      #      Azure, and an Entra app registration with a federated credential
-      #      for this repo (OIDC - no stored secret).
-      #   2. Set repo secrets  AZURE_TENANT_ID, AZURE_CLIENT_ID
-      #      and repo variables TRUSTED_SIGNING_ENDPOINT (e.g.
-      #      https://eus.codesigning.azure.net/), TRUSTED_SIGNING_ACCOUNT,
-      #      TRUSTED_SIGNING_PROFILE.
-      #   3. Set repo variable ENABLE_CODE_SIGNING = "true".
-      # TODO: confirm the latest azure/trusted-signing-action version when
-      # enabling.
-      # ------------------------------------------------------------------
-      - name: Azure login (OIDC, for Trusted Signing)
+     
+      # variable ENABLE_CODE_SIGNING = "true". Auth is OIDC: an Entra app
+      - name: Azure login (OIDC, for Artifact Signing)
         if: vars.ENABLE_CODE_SIGNING == 'true'
         uses: azure/login@v2
         with:
@@ -87,10 +77,10 @@ jobs:
 
       - name: Sign windows binary
         if: vars.ENABLE_CODE_SIGNING == 'true'
-        uses: azure/trusted-signing-action@v5
+        uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
           files-folder: dist\bin
           files-folder-filter: exe
@@ -122,10 +112,10 @@ jobs:
 
       - name: Sign MSI
         if: vars.ENABLE_CODE_SIGNING == 'true'
-        uses: azure/trusted-signing-action@v5
+        uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
           files-folder: dist\msi
           files-folder-filter: msi
