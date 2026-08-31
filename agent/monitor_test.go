@@ -159,6 +159,67 @@ func startTLSListener(t *testing.T, cert tls.Certificate) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
+// startMutualTLSListener serves cert but requires a client certificate,
+// mirroring SIP-TLS gateways: the server sends its certificate and then
+// aborts the handshake because the agent presents no client certificate.
+// TLS 1.2 is pinned so the abort happens before the client's handshake
+// completes (under TLS 1.3 the client finishes first and only a later read
+// fails).
+func startMutualTLSListener(t *testing.T, cert tls.Certificate) int {
+	t.Helper()
+
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAnyClientCert,
+		MaxVersion:   tls.VersionTLS12,
+	})
+	if err != nil {
+		t.Fatalf("tls listen: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				if tlsConn, ok := c.(*tls.Conn); ok {
+					_ = tlsConn.Handshake()
+				}
+				c.Close()
+			}(conn)
+		}
+	}()
+
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+func TestCheckDomainMonitor_ClientCertRequiredStillReportsChain(t *testing.T) {
+	serverCert, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	port := startMutualTLSListener(t, serverCert)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if !result.Success {
+		t.Fatalf("expected success despite aborted handshake, got failure %q (flags %v)", result.FailureReason, result.ChainStatusFlags)
+	}
+	if result.ChainPem != pemEncodeCerts(leaf) {
+		t.Fatal("expected ChainPem to carry the chain served before the handshake was aborted")
+	}
+	if result.Thumbprint == "" || result.Expires == "" {
+		t.Fatal("expected leaf fields to be populated from the captured chain")
+	}
+	if result.RootInTrustStore == nil || !*result.RootInTrustStore {
+		t.Fatalf("RootInTrustStore = %v, want true", result.RootInTrustStore)
+	}
+}
+
 func TestCheckDomainMonitor_SelfSignedUntrusted(t *testing.T) {
 	serverCert, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
 	port := startTLSListener(t, serverCert)
