@@ -98,7 +98,8 @@ if ($missingServices.Count -eq 0) {
 }
 
 // exchangeConnectorScript refreshes TlsCertificateName on Send/Receive
-// connectors after the certificate is enabled for SMTP.
+// connectors, and on the HybridConfiguration, after the certificate is
+// enabled for SMTP.
 const exchangeConnectorScript = `
 $cert = Get-ExchangeCertificate -Thumbprint $thumb
 $newTls = "<I>$($cert.Issuer)<S>$($cert.Subject)"
@@ -142,6 +143,27 @@ foreach ($t in $targets) {
         $updated += "$kind '$($conn.Name)'"
     } catch {
         $failed += "$kind '$($conn.Name)': $($_.Exception.Message)"
+    }
+}
+
+# The organization-wide HybridConfiguration carries its own issuer+subject
+# TlsCertificateName; refresh it the same way as the connectors.
+if (Get-Command Get-HybridConfiguration -ErrorAction SilentlyContinue) {
+    $hybrid = Get-HybridConfiguration -ErrorAction SilentlyContinue
+    $hybridTls = if ($hybrid) { ([string]$hybrid.TlsCertificateName).Trim() } else { '' }
+    if ($hybridTls -match '(?i)^<I>(.*)<S>(.*)$') {
+        $hybridSubjectCmp = ($Matches[2] -replace ',\s+', ',').Trim()
+        $hybridTlsCmp = ($hybridTls -replace ',\s+', ',').Trim()
+        if ($hybridSubjectCmp -eq $newSubjectCmp -and $hybridTlsCmp -ne $newTlsCmp) {
+            try {
+                Set-HybridConfiguration -TlsCertificateName $newTls
+                Write-Host "Updated HybridConfiguration TLS certificate to $newTls"
+            } catch {
+                $failed += "HybridConfiguration: $($_.Exception.Message)"
+            }
+        }
+    } elseif ($hybridTls) {
+        $unparsed += 'HybridConfiguration'
     }
 }
 
