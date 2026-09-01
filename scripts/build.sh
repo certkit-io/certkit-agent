@@ -24,9 +24,14 @@ LDFLAGS="-s -w \
 
 # Windows resources (.syso): icon + VERSIONINFO + manifest. The generated file
 # is suffixed _windows_amd64 so only the windows build links it.
-VER_NUMERIC="${VERSION#v}"
-if ! echo "$VER_NUMERIC" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  VER_NUMERIC="0.0.0"
+# Accept X.Y.Z or a prerelease tag X.Y.Z-<suffix>, but NOT git-describe
+# output (1.11.0-35-gabc123[-dirty]) - dev builds keep 0.0.0.
+BASE="${VERSION#v}"
+VER_NUMERIC="0.0.0"
+if echo "$BASE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' &&
+   ! echo "$BASE" | grep -Eq -- '-[0-9]+-g[0-9a-f]+(-dirty)?$' &&
+   ! echo "$BASE" | grep -Eq -- '-dirty$'; then
+  VER_NUMERIC="$(echo "$BASE" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')"
 fi
 echo "==> Generating Windows resources (go-winres, version $VER_NUMERIC)"
 go run github.com/tc-hib/go-winres@v0.3.3 make \

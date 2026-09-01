@@ -49,9 +49,14 @@ try {
 
     # Windows resources (.syso): icon + VERSIONINFO + manifest. The generated
     # file is suffixed _windows_amd64 so only the windows build links it.
-    $verNumeric = $Version.TrimStart("v")
-    if ($verNumeric -notmatch '^\d+\.\d+\.\d+$') {
-        $verNumeric = "0.0.0"
+    # Accept X.Y.Z or a prerelease tag X.Y.Z-<suffix>, but NOT git-describe
+    # output (1.11.0-35-gabc123[-dirty]) - dev builds keep 0.0.0.
+    $base = $Version.TrimStart("v")
+    $verNumeric = "0.0.0"
+    if ($base -match '^(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' -and
+        $base -notmatch '-\d+-g[0-9a-f]+(-dirty)?$' -and
+        $base -notmatch '-dirty$') {
+        $verNumeric = $Matches[1]
     }
     Write-Host "Generating Windows resources (go-winres, version $verNumeric)"
     go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --product-version $verNumeric --file-version $verNumeric --out cmd/certkit-agent/rsrc

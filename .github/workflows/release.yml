@@ -59,14 +59,20 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
-          if ($ver -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Tag '${{ github.ref_name }}' does not produce a valid MSI ProductVersion (need vMAJOR.MINOR.PATCH)"
+          # Stable tags are vX.Y.Z; prerelease/test tags add a suffix, e.g.
+          # v1.14.0-msi-alpha. MSI ProductVersion must be numeric X.Y.Z, so
+          # the suffix is stripped here 
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') {
+            throw "Tag '$tag' does not produce a valid MSI ProductVersion (need vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-<suffix>)"
           }
+          $ver = $Matches[1]
+          Write-Host "MSI ProductVersion: $ver (from tag $tag)"
           "version=$ver" >> $env:GITHUB_OUTPUT
 
      
-      # variable ENABLE_CODE_SIGNING = "true". Auth is OIDC: an Entra app
+      # Code signing (Azure Artifact Signing), gated on repo variable
+      # ENABLE_CODE_SIGNING = "true".
       - name: Azure login (OIDC, for Artifact Signing)
         if: vars.ENABLE_CODE_SIGNING == 'true'
         uses: azure/login@v2
@@ -209,6 +215,10 @@ jobs:
             dist/msi/*
             dist/*.txt
           generate_release_notes: true
+          # Suffixed tags (v1.14.0-alpha) publish as prereleases: GitHub's
+          # "latest release" pointer - and install.ps1's 'latest' routes -
+          # keep serving the last stable release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   docker-image:
     runs-on: ubuntu-latest
@@ -236,7 +246,8 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # prerelease tags (v1.14.0-alpha) must not move :latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Set build metadata
         run: |

@@ -27,7 +27,7 @@ own exe, wipes its data on uninstall).
 | `install.ps1` v2 (MSI + migration + `-Binary`) | ✅ Done — **not yet deployed to app.certkit.io** (cutover only after the first MSI-bearing release, §8) |
 | UpgradeCode | ✅ Frozen: `6050598C-625B-461F-B8C8-989E2962E79D` — never change it |
 | Logo assets | ✅ Done — real CertKit logo (rendered from the brand SVG) in `assets/certkit.{ico,png}` and `packaging/windows/{banner,dialog}.bmp`; to refresh art later, regenerate the same filenames/dimensions |
-| Code signing | ⚠️ **Placeholder** — Azure Trusted Signing steps are in `release.yml`, gated off until onboarding (checklist in the workflow comments) |
+| Code signing | ✅ Done — Azure **Artifact Signing** (Trusted Signing was renamed Jan 2026) wired in `release.yml` via `azure/artifact-signing-action@v2`, OIDC federated credential scoped to the GitHub `release` environment; gated on repo variable `ENABLE_CODE_SIGNING` |
 | VM install/upgrade/migration test matrix (§10 P2/P5) | ⏳ Not run yet — CI smoke-tests install/uninstall on the runner, but the migration and upgrade paths need a real VM pass |
 
 ---
@@ -72,6 +72,11 @@ setup is now "the key lives in someone's cloud HSM and CI asks it to sign."
 the cheapest and the cleanest CI integration (OIDC, nothing to leak). If eligibility fails,
 SSL.com eSigner is the pragmatic runner-up. Check eligibility **now** (Phase 0): identity
 validation has a multi-day lead time and gates only the signing phase, nothing else.
+
+> **Jan 2026 rename:** Microsoft renamed Trusted Signing to **Azure Artifact Signing**. The
+> GitHub Action is now `azure/artifact-signing-action@v2` (input `signing-account-name`), and
+> the IAM role is "Artifact Signing Certificate Profile Signer". Endpoints and behavior are
+> unchanged. This is the provider we onboarded with.
 
 Ruled out: **SignPath.io's free open-source tier** — this repo is Elastic License 2.0, which is
 not OSI-approved, and their OSS program would show "SignPath Foundation" as publisher instead of
@@ -192,9 +197,14 @@ features, evaluate the OSMF terms first. Authoring lives in `packaging/windows/`
 - **`UpgradeCode` is forever.** It is frozen as `6050598C-625B-461F-B8C8-989E2962E79D` — never
   change it; it is how future MSIs find and upgrade past installs. Component GUIDs use WiX
   auto-GUIDs (stable as long as install paths are stable).
-- **`Version`** must be numeric `a.b.c`: strip the tag's leading `v`, validate against
-  `^\d+\.\d+\.\d+$`, and fail the build loudly on anything else (a `git describe` suffix like
-  `1.11.0-3-gabc123` must never silently become a garbage ProductVersion).
+- **`Version`** must be numeric `a.b.c`. Release tags are `vX.Y.Z` (stable) or
+  `vX.Y.Z-<suffix>` (prerelease/testing, e.g. `v1.14.0-msi-alpha`); the workflow strips the
+  suffix for ProductVersion and publishes suffixed tags as **GitHub prereleases**, so the
+  `latest` release routes (and install.ps1) keep serving the last stable. Because a prerelease
+  and its final share a ProductVersion, `MajorUpgrade` sets `AllowSameVersionUpgrades="yes"` —
+  the final upgrades the prerelease in place (caveat: any same-version MSI replaces any other).
+  Anything else — in particular `git describe` output like `1.11.0-3-gabc123` — still fails the
+  build loudly rather than becoming a garbage ProductVersion.
 
 ### 4.2 Service, event source, cleanup of legacy litter
 
@@ -487,8 +497,8 @@ Each phase is independently shippable and verifiable.
   uninstall removes service + ProgramData and attempts unregister; migration from a real
   script-install; `/l*v` logs never contain the registration key.
 - **Phase 3 — CI, unsigned.** Workflow restructure minus SIGN steps; artifact handoff; checksum
-  regeneration in the release job; runner smoke test. Verify with a test tag (must be clean
-  `vX.Y.Z` — ProductVersion validation will reject anything else): release contains exe + MSI +
+  regeneration in the release job; runner smoke test. Verify with a test tag (`vX.Y.Z`, or
+  `vX.Y.Z-<suffix>` for a prerelease — anything else is rejected): release contains exe + MSI +
   checksums that match the published bytes.
 - **Phase 4 — signing.** Wire the chosen provider, exe-then-MSI. Verify:
   `Get-AuthenticodeSignature` reports Valid + timestamped on both assets; MSI still installs;
@@ -526,8 +536,10 @@ Each phase is independently shippable and verifiable.
 - **Deferred custom-action context.** No user environment, no property access — the key must
   travel via Secure property + SetProperty/CustomActionData, and both `REGISTRATIONKEY` and the
   `BootstrapConfig` property must be Hidden or the key appears in verbose logs.
-- **ProductVersion normalization.** Strip `v`, enforce `^\d+\.\d+\.\d+$`, fail loudly on
-  git-describe suffixes; major/minor must be < 256.
+- **ProductVersion normalization.** Tags must be `vX.Y.Z` or `vX.Y.Z-<suffix>` (suffix
+  stripped for ProductVersion; published as a GitHub prerelease). Fail loudly on
+  git-describe suffixes; major/minor must be < 256. Prerelease ↔ final share a
+  ProductVersion — handled by `AllowSameVersionUpgrades` (§4.1).
 - **Checksum ordering.** SHA256SUMS must be generated after signing in the release job, or
   install.ps1 verification breaks on every release.
 - **`NOT UPGRADINGPRODUCTCODE`.** The one condition standing between an upgrade and destroyed
