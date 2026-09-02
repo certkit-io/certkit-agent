@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CertKit Agent MSI (WiX v5+ authoring). See MSI-PLAN.md for the full design.
+
+  Build (from the repo root):
+    wix build packaging\windows\Package.wxs packaging\windows\CertKitUI.wxs -arch x64
+      -d Version=<a.b.c>  (tag minus the leading "v"; must be numeric a.b.c)
+      -d AgentExe=dist\bin\certkit-agent_windows_amd64.exe
+      -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext
+      -o dist\msi\certkit-agent_windows_amd64.msi
+
+  The UpgradeCode is frozen forever - never change it, it is how future MSIs
+  find and upgrade existing installs.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="CertKit Agent"
+           Manufacturer="CertKit"
+           Version="$(var.Version)"
+           UpgradeCode="6050598C-625B-461F-B8C8-989E2962E79D"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="CertKit Agent Installer" Manufacturer="CertKit"/>
+
+    <!-- afterInstallValidate: the old product is fully removed first. Its
+         uninstall runs with UPGRADINGPRODUCTCODE set, so MsiCleanup is
+         skipped and the agent's config/identity survive upgrades.
+
+         AllowSameVersionUpgrades: prerelease tags (v1.14.0-alpha) strip
+         their suffix for ProductVersion, so a prerelease and its final are
+         both 1.14.0 - this makes the final upgrade the prerelease in place
+         instead of installing side by side. Caveat: any same-version MSI
+         replaces any other (e.g. alpha2 over the final), which is the
+         behavior testers want anyway. -->
+    <MajorUpgrade Schedule="afterInstallValidate"
+                  AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of CertKit Agent is already installed."/>
+
+    <MediaTemplate EmbedCab="yes"/>
+
+    <Icon Id="CertKitIcon" SourceFile="assets\certkit.ico"/>
+    <Property Id="ARPPRODUCTICON" Value="CertKitIcon"/>
+    <Property Id="ARPHELPLINK" Value="https://certkit.io"/>
+    <!-- ARPNOMODIFY=1 is set inside CertKitUI (as in stock WixUI_InstallDir). -->
+    <!-- Repair would clobber a self-updated (newer) agent exe, so disable it. -->
+    <Property Id="ARPNOREPAIR" Value="1"/>
+
+    <!-- Public property for silent installs:
+           msiexec /i certkit-agent.msi /qn REGISTRATIONKEY="app.xxxx"
+         Hidden keeps the value out of verbose logs; Secure lets it cross
+         into the elevated execute sequence. -->
+    <Property Id="REGISTRATIONKEY" Hidden="yes" Secure="yes"/>
+    <!-- The deferred CA reads its command line from a property with the CA's
+         name; hide that one too or the key would leak into /l*v logs. -->
+    <Property Id="BootstrapConfig" Hidden="yes"/>
+
+    <!-- Set by AppSearch before the UI runs: present when this machine
+         already has an agent config, in which case the wizard skips the
+         registration-key page (upgrades/migrations need no key). -->
+    <Property Id="CONFIGEXISTS">
+      <DirectorySearch Id="CertKitConfigDirSearch" Path="[CommonAppDataFolder]CertKit\certkit-agent" Depth="0">
+        <FileSearch Id="CertKitConfigFileSearch" Name="config.json"/>
+      </DirectorySearch>
+    </Property>
+
+    <!-- Installer UI (interactive installs only; /qn skips it). CertKitUI is
+         the stock WixUI_InstallDir flow plus a registration-key page - see
+         CertKitUI.wxs. -->
+    <UIRef Id="CertKitUI"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="CERTKITDIR"/>
+    <WixVariable Id="WixUILicenseRtf" Value="packaging\windows\license.rtf"/>
+    <WixVariable Id="WixUIBannerBmp" Value="packaging\windows\banner.bmp"/>
+    <WixVariable Id="WixUIDialogBmp" Value="packaging\windows\dialog.bmp"/>
+
+    <!-- Layout matches the legacy script install exactly: C:\Program Files\CertKit\bin -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CERTKITDIR" Name="CertKit">
+        <Directory Id="BINDIR" Name="bin"/>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="CertKit Agent" AllowAbsent="no">
+      <ComponentRef Id="AgentExe"/>
+      <ComponentRef Id="EventLogSource"/>
+    </Feature>
+
+    <Component Id="AgentExe" Directory="BINDIR">
+      <File Id="AgentExeFile" Source="$(var.AgentExe)" Name="certkit-agent.exe" KeyPath="yes"/>
+
+      <!-- Internal service name stays certkit-agent (everything programmatic
+           keys on it); only the services.msc display name is branded. -->
+      <ServiceInstall Id="AgentService"
+                      Name="certkit-agent"
+                      DisplayName="CertKit Agent"
+                      Description="CertKit Agent service"
+                      Type="ownProcess"
+                      Start="auto"
+                      Account="LocalSystem"
+                      ErrorControl="normal"
+                      Arguments="run --service --service-name certkit-agent --config &quot;[CommonAppDataFolder]CertKit\certkit-agent\config.json&quot;">
+        <!-- Replicates configureRecovery() in install/windows.go: 3x restart, 5s delay, 1-day reset -->
+        <util:ServiceConfig FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="5"
+                            ResetPeriodInDays="1"/>
+      </ServiceInstall>
+
+      <!-- Stop/remove must block (upgrades replace the exe); start must not:
+           the agent exits when it cannot register, and a failed first start
+           should not roll back the install. install.ps1 verifies the service
+           is Running after install, as the script always has. -->
+      <ServiceControl Id="AgentServiceStopRemove" Name="certkit-agent"
+                      Stop="both" Remove="uninstall" Wait="yes"/>
+      <ServiceControl Id="AgentServiceStart" Name="certkit-agent"
+                      Start="install" Wait="no"/>
+
+      <!-- Self-update litter and legacy script-install remnants -->
+      <RemoveFile Id="RmOldExe" Name="certkit-agent.old.exe" On="both"/>
+      <RemoveFile Id="RmNewExe" Name="certkit-agent.new.exe" On="both"/>
+      <RemoveFile Id="RmLegacyUninstall" Name="uninstall.ps1" On="install"/>
+
+      <!-- Legacy hand-written ARP entry (script installs); the MSI registers
+           its own, so remove the old one even on direct MSI installs. -->
+      <RemoveRegistryKey Id="RmLegacyArp" Root="HKLM" Action="removeOnInstall"
+                         Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\CertKit Agent"/>
+    </Component>
+
+    <!-- Takes over the registration the Go code writes today (same key, same
+         values): HKLM\SYSTEM\CCS\Services\EventLog\Application\CertKit -->
+    <Component Id="EventLogSource" Directory="BINDIR">
+      <util:EventSource Log="Application"
+                        Name="CertKit"
+                        EventMessageFile="[System64Folder]EventCreate.exe"
+                        SupportsErrors="yes"
+                        SupportsWarnings="yes"
+                        SupportsInformationals="yes"
+                        KeyPath="yes"/>
+    </Component>
+
+    <!-- Custom actions: both run our own installed (signed) exe. Deferred +
+         no-impersonate (LocalSystem), command line delivered via the
+         SetProperty/CustomActionData pattern because deferred actions can
+         read neither installer properties nor the invoking user's
+         environment. No PowerShell anywhere: AV heuristics flag
+         installer-spawned PowerShell. -->
+    <SetProperty Id="BootstrapConfig" Sequence="execute" Before="BootstrapConfig"
+                 Value="&quot;[BINDIR]certkit-agent.exe&quot; bootstrap-config --service-name certkit-agent --config &quot;[CommonAppDataFolder]CertKit\certkit-agent\config.json&quot; --key &quot;[REGISTRATIONKEY]&quot;"/>
+    <CustomAction Id="BootstrapConfig"
+                  DllEntry="WixQuietExec64"
+                  BinaryRef="Wix4UtilCA_X64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check"/>
+
+    <SetProperty Id="MsiCleanup" Sequence="execute" Before="MsiCleanup"
+                 Value="&quot;[BINDIR]certkit-agent.exe&quot; msi-cleanup --config &quot;[CommonAppDataFolder]CertKit\certkit-agent\config.json&quot;"/>
+    <CustomAction Id="MsiCleanup"
+                  DllEntry="WixQuietExec64"
+                  BinaryRef="Wix4UtilCA_X64"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore"/>
+
+    <InstallExecuteSequence>
+      <!-- After files+service exist, before StartServices: the service's
+           first start must find config.json. -->
+      <Custom Action="BootstrapConfig" After="InstallServices"
+              Condition="NOT Installed OR REINSTALL"/>
+      <!-- True uninstall only (never on upgrade); the exe must still be on
+           disk, so after StopServices and before RemoveFiles. -->
+      <Custom Action="MsiCleanup" After="StopServices"
+              Condition="(REMOVE~=&quot;ALL&quot;) AND (NOT UPGRADINGPRODUCTCODE)"/>
+    </InstallExecuteSequence>
+
+  </Package>
+</Wix>

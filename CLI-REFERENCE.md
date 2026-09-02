@@ -9,6 +9,8 @@
 ```text
 certkit-agent install    [--key REGISTRATION_KEY] [--service-name NAME] [--config PATH]
 certkit-agent uninstall  [--service-name NAME] [--config PATH]
+certkit-agent bootstrap-config [--key REGISTRATION_KEY] [--service-name NAME] [--config PATH]   (Windows, MSI internal)
+certkit-agent msi-cleanup      [--config PATH]                                                  (Windows, MSI internal)
 certkit-agent run        [--key REGISTRATION_KEY] [--config PATH] [--once]
 certkit-agent register   REGISTRATION_KEY [--config PATH]
 certkit-agent validate   [--config PATH]
@@ -98,6 +100,26 @@ sudo certkit-agent uninstall --service-name edge-agent --config /opt/certkit/edg
 ```powershell
 certkit-agent.exe uninstall
 certkit-agent.exe uninstall --service-name edge-agent --config "C:\ProgramData\CertKit\edge\config.json"
+```
+
+### `bootstrap-config` (Windows, MSI internal)
+
+Used by the MSI installer as a custom action; not intended for manual use. Creates the initial
+config file (requires `--key` when no config exists) and persists the service name. Unlike
+`install` it never touches the service manager, event log, or registry - the MSI owns those.
+
+```text
+certkit-agent bootstrap-config [--key REGISTRATION_KEY] [--service-name NAME] [--config PATH]
+```
+
+### `msi-cleanup` (Windows, MSI internal)
+
+Used by the MSI installer during uninstall (never during upgrades); not intended for manual
+use. Performs the best-effort unregister call to CertKit and removes the config file and
+`%ProgramData%\CertKit`. Always exits 0 so cleanup problems cannot block an uninstall.
+
+```text
+certkit-agent msi-cleanup [--config PATH]
 ```
 
 ### `run`

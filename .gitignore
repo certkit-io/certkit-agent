@@ -1,5 +1,6 @@
 /dist/
 /\.gocache/
+*.syso
 /dev/**/config.json
 /dev/**/.env
 /dev/**/certkit-agent.log

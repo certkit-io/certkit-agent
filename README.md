@@ -31,6 +31,10 @@ $env:REGISTRATION_KEY="abc.xyz"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -useb https://app.certkit.io/agent/latest/install.ps1 | iex"
 ```
 
+The script installs the signed MSI from the latest release. The MSI can also be deployed
+directly (GPO/Intune): `msiexec /i certkit-agent_windows_amd64.msi /qn REGISTRATIONKEY="abc.xyz"`.
+See [INSTALLATION.md](INSTALLATION.md) for details.
+
 ### Docker
 
 ```bash

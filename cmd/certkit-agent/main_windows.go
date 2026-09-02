@@ -26,6 +26,8 @@ func usageAndExit() {
 Usage:
   certkit-agent install    [--service-name NAME] [--config PATH] [--key REGISTRATION_KEY]
   certkit-agent uninstall  [--service-name NAME] [--config PATH]
+  certkit-agent bootstrap-config [--service-name NAME] [--config PATH] [--key REGISTRATION_KEY]   (used by the MSI installer)
+  certkit-agent msi-cleanup      [--config PATH]                                                  (used by the MSI installer)
   certkit-agent run        [--config PATH] [--once] [--key REGISTRATION_KEY]
   certkit-agent register   REGISTRATION_KEY [--config PATH]
   certkit-agent validate   [--config PATH]
@@ -44,6 +46,16 @@ func installCmd(args []string) {
 func uninstallCmd(args []string) {
 	mustBeAdmin()
 	agentinstall.UninstallWindows(args, defaultServiceName)
+}
+
+func bootstrapConfigCmd(args []string) {
+	mustBeAdmin()
+	agentinstall.BootstrapConfigWindows(args, defaultServiceName)
+}
+
+func msiCleanupCmd(args []string) {
+	mustBeAdmin()
+	agentinstall.MsiCleanupWindows(args)
 }
 
 func runCmd(args []string) {

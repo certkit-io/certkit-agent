@@ -22,6 +22,25 @@ LDFLAGS="-s -w \
   -X main.commit=$COMMIT \
   -X main.date=$BUILD_DATE"
 
+# Windows resources (.syso): icon + VERSIONINFO + manifest. The generated file
+# is suffixed _windows_amd64 so only the windows build links it.
+# Accept X.Y.Z or a prerelease tag X.Y.Z-<suffix>, but NOT git-describe
+# output (1.11.0-35-gabc123[-dirty]) - dev builds keep 0.0.0.
+BASE="${VERSION#v}"
+VER_NUMERIC="0.0.0"
+if echo "$BASE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' &&
+   ! echo "$BASE" | grep -Eq -- '-[0-9]+-g[0-9a-f]+(-dirty)?$' &&
+   ! echo "$BASE" | grep -Eq -- '-dirty$'; then
+  VER_NUMERIC="$(echo "$BASE" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')"
+fi
+echo "==> Generating Windows resources (go-winres, version $VER_NUMERIC)"
+go run github.com/tc-hib/go-winres@v0.3.3 make \
+  --in winres/winres.json \
+  --arch amd64 \
+  --product-version "$VER_NUMERIC" \
+  --file-version "$VER_NUMERIC" \
+  --out cmd/certkit-agent/rsrc
+
 build_one () {
   local goos="$1"
   local goarch="$2"
@@ -39,12 +58,18 @@ build_one linux amd64 ""
 build_one linux arm64 ""
 build_one windows amd64 ".exe"
 
-echo "==> Checksums"
-(
-  cd "$DIST_DIR/bin"
-  sha256sum * > "../${APP_NAME}_SHA256SUMS.txt"
-)
+# In CI, checksums are generated in the release job AFTER code signing
+# (signing changes the file hashes). Locally they are still handy.
+if [ "${SKIP_CHECKSUMS:-0}" = "1" ]; then
+  echo "==> Skipping checksums (SKIP_CHECKSUMS=1)"
+else
+  echo "==> Checksums"
+  (
+    cd "$DIST_DIR/bin"
+    sha256sum * > "../${APP_NAME}_SHA256SUMS.txt"
+  )
+  ls -lah "$DIST_DIR"/*.txt
+fi
 
 echo "==> Done. Outputs in: $DIST_DIR"
 ls -lah "$DIST_DIR/bin"
-ls -lah "$DIST_DIR"/*.txt
