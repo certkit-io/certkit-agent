@@ -1,0 +1,81 @@
+name: docker
+
+# Builds and pushes ghcr.io/certkit-io/certkit-agent.
+#
+# - Tag push (v*): Pushes :vX.Y.Z, :X.Y.Z, :X.Y and (for non-prerelease tags) :latest.
+# - Manual (workflow_dispatch): rebuild and push from any ref without cutting
+#   a release, e.g. to ship a Dockerfile-only change:
+#
+#     gh workflow run docker.yml --ref main -f tag=latest
+#     gh workflow run docker.yml --ref v1.14.0 -f tag=v1.14.0
+#
+#   Only the single image tag given in `tag` is pushed.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to push (e.g. latest, v1.14.0, test)"
+        required: true
+        default: latest
+      version:
+        description: "Value baked into `certkit-agent version` (defaults to the ref name)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            # Tag push: version tags, plus :latest for stable releases only
+            # (prerelease tags like v1.14.0-alpha must not move :latest).
+            type=ref,event=tag,enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(github.ref_name, '-') }}
+            # Manual run: exactly the requested tag.
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Set build metadata
+        run: |
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          echo "BUILD_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_VERSION=${{ inputs.version || github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.BUILD_VERSION }}
+            COMMIT=${{ env.BUILD_COMMIT }}
+            DATE=${{ env.BUILD_DATE }}

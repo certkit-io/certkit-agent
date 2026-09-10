@@ -11,13 +11,20 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+# TARGETARCH is set by buildx per platform (amd64 / arm64); default keeps
+# plain `docker build` working.
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" \
     -o /out/certkit-agent ./cmd/certkit-agent
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates
+# bash: the agent prefers bash (set -euo pipefail) for update commands when
+# it is present. curl / jq / openssl: used by deployment templates.
+# docker-cli: client only (no daemon), for the sidecar "docker exec <web>
+# <reload>" mode with /var/run/docker.sock mounted.
+RUN apk add --no-cache ca-certificates bash curl jq openssl docker-cli
 
 COPY --from=build /out/certkit-agent /usr/local/bin/certkit-agent
 

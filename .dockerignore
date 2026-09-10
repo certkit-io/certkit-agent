@@ -1,0 +1,15 @@
+# Keep the build context to what docker/Dockerfile actually needs
+*
+!go.mod
+!go.sum
+!*.go
+!agent/
+!api/
+!auth/
+!cmd/
+!config/
+!crypto/
+!install/
+!inventory/
+!selfupdate/
+!utils/
