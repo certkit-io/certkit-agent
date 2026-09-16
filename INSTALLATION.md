@@ -204,7 +204,7 @@ Sidecar assumptions:
 - Reload behavior depends on selected mode.
 
 Reference implementation:
-- `dev/docker-sidecar`
+- [dev/docker-sidecar](dev/docker-sidecar/README.md)
 
 ### Mode 1: Socket Exec
 
