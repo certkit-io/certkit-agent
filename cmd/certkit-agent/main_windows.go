@@ -12,10 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unsafe"
 
 	agentinstall "github.com/certkit-io/certkit-agent/install"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const defaultConfigPath = agentinstall.DefaultWindowsConfigPath
@@ -205,6 +207,10 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
+	if err := ensureDelayedAutoStart(s.serviceName); err != nil {
+		log.Printf("Warning: failed to set delayed auto-start on service %s: %v", s.serviceName, err)
+	}
+
 	for c := range r {
 		switch c.Cmd {
 		case svc.Interrogate:
@@ -224,6 +230,41 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 	<-done
 	changes <- svc.Status{State: svc.Stopped}
 	return false, 0
+}
+
+// ensureDelayedAutoStart switches an Automatic service to Automatic (Delayed
+// Start). Installs made before delayed start was the default never re-run the
+// installer (self-update only swaps the exe), so the running service fixes
+// itself. Manual/Disabled services are left alone.
+func ensureDelayedAutoStart(serviceName string) error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("connect to service manager: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return fmt.Errorf("open service: %w", err)
+	}
+	defer s.Close()
+
+	cfg, err := s.Config()
+	if err != nil {
+		return fmt.Errorf("read service config: %w", err)
+	}
+	if cfg.StartType != mgr.StartAutomatic || cfg.DelayedAutoStart {
+		return nil
+	}
+
+	// Change only the delayed-start flag; UpdateConfig would rewrite the
+	// whole service config.
+	info := windows.SERVICE_DELAYED_AUTO_START_INFO{IsDelayedAutoStartUp: 1}
+	if err := windows.ChangeServiceConfig2(s.Handle, windows.SERVICE_CONFIG_DELAYED_AUTO_START_INFO, (*byte)(unsafe.Pointer(&info))); err != nil {
+		return fmt.Errorf("change service config: %w", err)
+	}
+	log.Printf("Set service %s to Automatic (Delayed Start)", serviceName)
+	return nil
 }
 
 func mustBeAdmin() {
