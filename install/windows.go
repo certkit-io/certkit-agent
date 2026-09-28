@@ -89,6 +89,7 @@ func InstallWindows(args []string, defaultServiceName string) {
 			mgr.Config{
 				DisplayName:      *serviceName,
 				StartType:        mgr.StartAutomatic,
+				DelayedAutoStart: true,
 				ServiceStartName: "LocalSystem",
 				Description:      defaultServiceDescription,
 			},
@@ -112,6 +113,7 @@ func InstallWindows(args []string, defaultServiceName string) {
 		}
 		current.DisplayName = *serviceName
 		current.StartType = mgr.StartAutomatic
+		current.DelayedAutoStart = true
 		current.ServiceStartName = "LocalSystem"
 		current.BinaryPathName = binLine
 		current.Description = defaultServiceDescription

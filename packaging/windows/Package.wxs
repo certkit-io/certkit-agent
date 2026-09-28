@@ -101,6 +101,11 @@
                       Account="LocalSystem"
                       ErrorControl="normal"
                       Arguments="run --service --service-name certkit-agent --config &quot;[CommonAppDataFolder]CertKit\certkit-agent\config.json&quot;">
+        <!-- Automatic (Delayed Start). This triggers warning WIX1149, which is
+             expected: Microsoft's "not working as expected" note covers only
+             MSI's failure-actions table (hence util:ServiceConfig below for
+             recovery), and util:ServiceConfig has no delayed-start option. -->
+        <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes"/>
         <!-- Replicates configureRecovery() in install/windows.go: 3x restart, 5s delay, 1-day reset -->
         <util:ServiceConfig FirstFailureActionType="restart"
                             SecondFailureActionType="restart"
