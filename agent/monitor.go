@@ -208,9 +208,20 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	}
 	defer conn.Close()
 
-	if err := conn.SetDeadline(time.Now().Add(domainMonitorTimeout)); err != nil {
+	timeout := domainMonitorTimeout
+	if isStartTLSPort(monitor.Port) {
+		timeout = startTLSMonitorTimeout
+	}
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		result.FailureReason = failureUnableToRetrieveCertificate
 		return result
+	}
+
+	if isStartTLSPort(monitor.Port) {
+		if err := negotiateStartTLS(conn, monitor.Port); err != nil {
+			result.FailureReason = failureUnableToRetrieveCertificate
+			return result
+		}
 	}
 
 	// InsecureSkipVerify captures the certificate even when it is invalid;
