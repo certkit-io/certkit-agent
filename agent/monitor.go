@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -46,6 +47,11 @@ const (
 	chainFlagUntrustedRoot    = 32
 	chainFlagPartialChain     = 65536
 )
+
+const rdpPort = 3389
+
+// Microsoft's Remote Desktop Authentication EKU.
+var oidRemoteDesktopAuthentication = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 54, 1, 2}
 
 func monitorRoots() *x509.CertPool {
 	return freshSystemRoots()
@@ -270,7 +276,7 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	_, err = leaf.Verify(x509.VerifyOptions{
 		Intermediates: intermediates,
 		Roots:         roots,
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		KeyUsages:     monitorKeyUsages(monitor.Port, leaf),
 	})
 	if err != nil {
 		result.FailureReason = failureX509ChainFailure
@@ -288,6 +294,34 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	result.RootInTrustStore = &rootInStore
 	result.Success = true
 	return result
+}
+
+// monitorKeyUsages returns the usages the served certificate must be valid
+// for. RDP clients accept the Remote Desktop Authentication EKU in place of
+// serverAuth, and AD CS Remote Desktop templates issue it without serverAuth,
+// so such a certificate on the RDP port is not held to serverAuth. Go cannot
+// require an EKU it does not know, so usage checking is skipped for that case;
+// trust, expiry and hostname are still checked.
+func monitorKeyUsages(port int, leaf *x509.Certificate) []x509.ExtKeyUsage {
+	serverAuth := []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+
+	if port != rdpPort {
+		return serverAuth
+	}
+
+	for _, usage := range leaf.ExtKeyUsage {
+		if usage == x509.ExtKeyUsageServerAuth {
+			return serverAuth
+		}
+	}
+
+	for _, oid := range leaf.UnknownExtKeyUsage {
+		if oid.Equal(oidRemoteDesktopAuthentication) {
+			return []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
+		}
+	}
+
+	return serverAuth
 }
 
 // encodeChainPem renders the served chain, leaf first, as concatenated PEM
