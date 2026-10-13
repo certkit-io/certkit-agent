@@ -29,6 +29,31 @@ type DomainMonitoringResultUpdate struct {
 	// PEM blocks.
 	ChainPem         string `json:"chain_pem,omitempty"`
 	RootInTrustStore *bool  `json:"root_in_trust_store,omitempty"`
+	// Raw handshake facts for the server's TLS, certificate chain and
+	// post-quantum panels. Present whenever the monitoring handshake got a
+	// certificate.
+	Tls *MonitorTlsDetails `json:"tls,omitempty"`
+}
+
+// MonitorTlsDetails holds what the agent observed, never a verdict: the server
+// names and judges everything.
+type MonitorTlsDetails struct {
+	// The address the monitoring connection reached.
+	RemoteIp string `json:"remote_ip,omitempty"`
+	// Leaf to root, as this host's trust store verified the chain. Omitted
+	// when it couldn't.
+	VerifiedChainPem string            `json:"verified_chain_pem,omitempty"`
+	Probes           []MonitorTlsProbe `json:"probes"`
+}
+
+// MonitorTlsProbe is the outcome of one handshake, as IANA code points.
+type MonitorTlsProbe struct {
+	Id          string `json:"id"`
+	Succeeded   bool   `json:"succeeded"`
+	Version     uint16 `json:"version,omitempty"`
+	CipherSuite uint16 `json:"cipher_suite,omitempty"`
+	CurveId     uint16 `json:"curve_id,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type DomainMonitoringResultBatch struct {

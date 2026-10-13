@@ -206,28 +206,10 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 		serverName = ""
 	}
 
-	dialer := net.Dialer{Timeout: domainMonitorTimeout}
-	conn, err := dialer.Dial("tcp", net.JoinHostPort(monitor.DomainName, strconv.Itoa(monitor.Port)))
+	conn, err := dialMonitorTarget(monitor)
 	if err != nil {
 		result.FailureReason = failureUnableToRetrieveCertificate
 		return result
-	}
-	defer conn.Close()
-
-	timeout := domainMonitorTimeout
-	if isStartTLSPort(monitor.Port) {
-		timeout = startTLSMonitorTimeout
-	}
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
-		result.FailureReason = failureUnableToRetrieveCertificate
-		return result
-	}
-
-	if isStartTLSPort(monitor.Port) {
-		if err := negotiateStartTLS(conn, monitor.Port); err != nil {
-			result.FailureReason = failureUnableToRetrieveCertificate
-			return result
-		}
 	}
 
 	// InsecureSkipVerify captures the certificate even when it is invalid;
@@ -236,11 +218,14 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	// some endpoints (e.g. SIP-TLS gateways requiring mutual TLS) send their
 	// certificate and then abort the handshake because we present no client
 	// certificate. The chain is still worth reporting in that case.
+	// This handshake doubles as the browser-like "modern" probe, so the groups
+	// it offers are pinned (monitorCurvePreferences).
 	var peerCertificates []*x509.Certificate
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         serverName,
 		MinVersion:         tls.VersionTLS12,
+		CurvePreferences:   monitorCurvePreferences,
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			certs := make([]*x509.Certificate, 0, len(rawCerts))
 			for _, raw := range rawCerts {
@@ -254,10 +239,11 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 			return nil
 		},
 	})
-	if err := tlsConn.Handshake(); err != nil && len(peerCertificates) == 0 {
-		result.FailureReason = failureUnableToRetrieveCertificate
-		return result
-	}
+	handshakeErr := tlsConn.Handshake()
+	modern := probeResult(probeIdModern, tlsConn, handshakeErr)
+	remoteIP := remoteIPOf(conn)
+	// The probes open their own connections.
+	conn.Close()
 
 	if len(peerCertificates) == 0 {
 		result.FailureReason = failureUnableToRetrieveCertificate
@@ -275,26 +261,37 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	result.SerialNumber = formatSerialNumber(leaf.SerialNumber)
 	result.ChainPem = encodeChainPem(peerCertificates)
 
+	// Verified before the hostname check so the chain this host trusts is
+	// reported even when the name doesn't match. The result fields are still
+	// decided in the same order as before: hostname, then chain.
+	intermediates := x509.NewCertPool()
+	for _, cert := range peerCertificates[1:] {
+		intermediates.AddCert(cert)
+	}
+	verifyOptions := x509.VerifyOptions{
+		Intermediates: intermediates,
+		Roots:         roots,
+		KeyUsages:     monitorKeyUsages(monitor.Port, leaf),
+	}
+	chains, verifyErr := leaf.Verify(verifyOptions)
+
+	result.Tls = &api.MonitorTlsDetails{
+		RemoteIp:         remoteIP,
+		VerifiedChainPem: encodeChainPem(verifiedChainForReport(leaf, verifyOptions, chains, verifyErr)),
+		Probes:           append([]api.MonitorTlsProbe{modern}, runMonitorProbes(monitor, serverName)...),
+	}
+
 	if err := leaf.VerifyHostname(monitor.DomainName); err != nil {
 		result.FailureReason = failureCertificateDoesNotCoverDomain
 		return result
 	}
 
-	intermediates := x509.NewCertPool()
-	for _, cert := range peerCertificates[1:] {
-		intermediates.AddCert(cert)
-	}
-	_, err = leaf.Verify(x509.VerifyOptions{
-		Intermediates: intermediates,
-		Roots:         roots,
-		KeyUsages:     monitorKeyUsages(monitor.Port, leaf),
-	})
-	if err != nil {
+	if verifyErr != nil {
 		result.FailureReason = failureX509ChainFailure
-		flags := chainStatusFlags(err)
+		flags := chainStatusFlags(verifyErr)
 		result.ChainStatusFlags = &flags
 		var unknownAuthorityErr x509.UnknownAuthorityError
-		if errors.As(err, &unknownAuthorityErr) {
+		if errors.As(verifyErr, &unknownAuthorityErr) {
 			rootInStore := false
 			result.RootInTrustStore = &rootInStore
 		}
@@ -305,6 +302,72 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 	result.RootInTrustStore = &rootInStore
 	result.Success = true
 	return result
+}
+
+// dialMonitorTarget connects to the monitor's host and port and returns a
+// connection ready for the TLS handshake: on mail and FTP ports the STARTTLS
+// exchange has already run. The deadline covers the handshake too. The
+// monitoring handshake and every probe connect through here.
+func dialMonitorTarget(monitor config.DomainMonitorConfig) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: domainMonitorTimeout}
+	conn, err := dialer.Dial("tcp", net.JoinHostPort(monitor.DomainName, strconv.Itoa(monitor.Port)))
+	if err != nil {
+		return nil, err
+	}
+
+	timeout := domainMonitorTimeout
+	if isStartTLSPort(monitor.Port) {
+		timeout = startTLSMonitorTimeout
+	}
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	if isStartTLSPort(monitor.Port) {
+		if err := negotiateStartTLS(conn, monitor.Port); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+
+	return conn, nil
+}
+
+// remoteIPOf returns the address a connection reached, without the port.
+func remoteIPOf(conn net.Conn) string {
+	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		return addr.IP.String()
+	}
+	return ""
+}
+
+// verifiedChainForReport returns the chain this host's trust store verified,
+// leaf first, or nil when nothing it trusts anchors the chain. The server
+// rebuilds the chain from it and judges expiry and key usage itself, so when
+// Verify failed only on those, it verifies again at a moment the leaf was
+// valid and for any usage, purely to find the path to a trusted root. That
+// second verification never changes the monitoring result.
+func verifiedChainForReport(leaf *x509.Certificate, options x509.VerifyOptions, chains [][]*x509.Certificate, verifyErr error) []*x509.Certificate {
+	if verifyErr == nil {
+		return chains[0]
+	}
+
+	var invalidErr x509.CertificateInvalidError
+	if !errors.As(verifyErr, &invalidErr) {
+		return nil
+	}
+	if invalidErr.Reason != x509.Expired && invalidErr.Reason != x509.IncompatibleUsage {
+		return nil
+	}
+
+	options.KeyUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
+	options.CurrentTime = leaf.NotBefore.Add(leaf.NotAfter.Sub(leaf.NotBefore) / 2)
+	relaxedChains, err := leaf.Verify(options)
+	if err != nil {
+		return nil
+	}
+	return relaxedChains[0]
 }
 
 // monitorKeyUsages returns the usages the served certificate must be valid

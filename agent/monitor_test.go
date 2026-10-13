@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +86,13 @@ func newSelfSignedCert(t *testing.T, dnsNames []string, ipAddresses []net.IP, no
 // returned tls.Certificate serves both, leaf first.
 func newCaSignedCert(t *testing.T, ipAddresses []net.IP) (tls.Certificate, *x509.Certificate, *x509.Certificate) {
 	t.Helper()
+	return newCaSignedCertValidFor(t, ipAddresses, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+}
+
+// newCaSignedCertValidFor is newCaSignedCert with the leaf's validity window
+// chosen by the caller. The CA is valid from before the leaf until tomorrow.
+func newCaSignedCertValidFor(t *testing.T, ipAddresses []net.IP, leafNotBefore, leafNotAfter time.Time) (tls.Certificate, *x509.Certificate, *x509.Certificate) {
+	t.Helper()
 
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -93,7 +102,7 @@ func newCaSignedCert(t *testing.T, ipAddresses []net.IP) (tls.Certificate, *x509
 	caTemplate := x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "monitor-test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
+		NotBefore:             leafNotBefore.Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign,
 		BasicConstraintsValid: true,
@@ -116,8 +125,8 @@ func newCaSignedCert(t *testing.T, ipAddresses []net.IP) (tls.Certificate, *x509
 	leafTemplate := x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: "monitor-test-leaf"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
+		NotBefore:    leafNotBefore,
+		NotAfter:     leafNotAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		IPAddresses:  ipAddresses,
@@ -220,6 +229,14 @@ func TestCheckDomainMonitor_ClientCertRequiredStillReportsChain(t *testing.T) {
 	if result.RootInTrustStore == nil || !*result.RootInTrustStore {
 		t.Fatalf("RootInTrustStore = %v, want true", result.RootInTrustStore)
 	}
+	// The monitoring handshake is the "modern" probe, and it was aborted.
+	if result.Tls == nil || len(result.Tls.Probes) == 0 {
+		t.Fatal("expected TLS details once a certificate arrived")
+	}
+	modern := result.Tls.Probes[0]
+	if modern.Id != probeIdModern || modern.Succeeded || modern.Error == "" {
+		t.Fatalf("modern probe = %+v, want a failed handshake with its error", modern)
+	}
 }
 
 func TestCheckDomainMonitor_SelfSignedUntrusted(t *testing.T) {
@@ -307,7 +324,8 @@ func TestCheckDomainMonitor_HostnameMismatchShortCircuitsBeforeChain(t *testing.
 		t.Fatal("expected failure for hostname mismatch")
 	}
 	// The certificate is also untrusted; CertificateDoesNotCoverDomain proves
-	// the SAN check short-circuits before the chain check.
+	// the SAN failure still decides the result ahead of the chain failure,
+	// even though the chain is now verified first.
 	if result.FailureReason != failureCertificateDoesNotCoverDomain {
 		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureCertificateDoesNotCoverDomain)
 	}
@@ -318,7 +336,7 @@ func TestCheckDomainMonitor_HostnameMismatchShortCircuitsBeforeChain(t *testing.
 		t.Fatal("expected leaf fields to be populated on hostname mismatch")
 	}
 	if result.RootInTrustStore != nil {
-		t.Fatalf("RootInTrustStore = %v, want nil when the chain check never ran", *result.RootInTrustStore)
+		t.Fatalf("RootInTrustStore = %v, want nil on a hostname mismatch", *result.RootInTrustStore)
 	}
 	if result.ChainPem != pemEncodeCerts(leaf) {
 		t.Fatal("expected ChainPem to carry the served chain on hostname mismatch")
@@ -370,6 +388,9 @@ func TestCheckDomainMonitor_ClosedPort(t *testing.T) {
 	}
 	if result.ChainPem != "" || result.RootInTrustStore != nil {
 		t.Fatal("expected no chain data for closed port")
+	}
+	if result.Tls != nil {
+		t.Fatal("expected no TLS details for closed port")
 	}
 	if result.Timestamp == "" {
 		t.Fatal("expected timestamp to be set")
@@ -423,6 +444,226 @@ func TestCheckDomainMonitor_ServedChainReportedInOrder(t *testing.T) {
 	}
 	if result.ChainPem != pemEncodeCerts(leaf, ca) {
 		t.Fatal("expected ChainPem to carry the served chain leaf-first")
+	}
+}
+
+func TestCheckDomainMonitor_ReportsTlsDetailsOnSuccess(t *testing.T) {
+	serverCert, leaf, ca := newCaSignedCert(t, []net.IP{net.ParseIP("127.0.0.1")})
+
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+
+	port := startTLSListener(t, serverCert)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if !result.Success {
+		t.Fatalf("expected success, got failure %q (flags %v)", result.FailureReason, result.ChainStatusFlags)
+	}
+	if result.Tls == nil {
+		t.Fatal("expected TLS details")
+	}
+	if result.Tls.RemoteIp != "127.0.0.1" {
+		t.Fatalf("RemoteIp = %q, want 127.0.0.1", result.Tls.RemoteIp)
+	}
+	if result.Tls.VerifiedChainPem != pemEncodeCerts(leaf, ca) {
+		t.Fatal("expected VerifiedChainPem to run leaf to root")
+	}
+
+	wantIds := []string{probeIdModern, probeIdX25519MLKEM768, probeIdSecP256r1MLKEM768, probeIdSecP384r1MLKEM1024, probeIdTls12, probeIdLegacy}
+	if len(result.Tls.Probes) != len(wantIds) {
+		t.Fatalf("len(Probes) = %d, want %d", len(result.Tls.Probes), len(wantIds))
+	}
+	for i, id := range wantIds {
+		if result.Tls.Probes[i].Id != id {
+			t.Fatalf("Probes[%d].Id = %q, want %q", i, result.Tls.Probes[i].Id, id)
+		}
+	}
+
+	modern := result.Tls.Probes[0]
+	if !modern.Succeeded || modern.Version != tls.VersionTLS13 || modern.CipherSuite == 0 || modern.CurveId == 0 {
+		t.Fatalf("modern probe = %+v, want a TLS 1.3 handshake with its suite and group", modern)
+	}
+}
+
+// The chain is verified before the hostname check, so the panels can show its
+// trust status even when the name doesn't match.
+func TestCheckDomainMonitor_ReportsVerifiedChainOnHostnameMismatch(t *testing.T) {
+	serverCert, leaf, ca := newCaSignedCert(t, []net.IP{net.ParseIP("10.0.0.1")})
+
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+
+	port := startTLSListener(t, serverCert)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if result.FailureReason != failureCertificateDoesNotCoverDomain {
+		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureCertificateDoesNotCoverDomain)
+	}
+	if result.ChainStatusFlags != nil || result.RootInTrustStore != nil {
+		t.Fatal("expected no chain fields on a hostname mismatch")
+	}
+	if result.Tls == nil || result.Tls.VerifiedChainPem != pemEncodeCerts(leaf, ca) {
+		t.Fatal("expected VerifiedChainPem on a hostname mismatch")
+	}
+}
+
+func TestCheckDomainMonitor_NoVerifiedChainWhenUntrusted(t *testing.T) {
+	serverCert, _, _ := newCaSignedCert(t, []net.IP{net.ParseIP("127.0.0.1")})
+	port := startTLSListener(t, serverCert)
+
+	// An empty pool trusts nothing, whatever this machine's trust store holds.
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, x509.NewCertPool())
+
+	if result.FailureReason != failureX509ChainFailure {
+		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureX509ChainFailure)
+	}
+	if result.Tls == nil {
+		t.Fatal("expected TLS details for a chain failure")
+	}
+	if result.Tls.VerifiedChainPem != "" {
+		t.Fatal("expected no VerifiedChainPem for an untrusted chain")
+	}
+}
+
+// An expired leaf from a trusted CA still reports the path to that CA, so the
+// server shows "expired" rather than "not trusted". The result fields are the
+// same as before.
+func TestCheckDomainMonitor_ExpiredLeafStillReportsVerifiedChain(t *testing.T) {
+	serverCert, leaf, ca := newCaSignedCertValidFor(t, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-48*time.Hour), time.Now().Add(-24*time.Hour))
+
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+
+	port := startTLSListener(t, serverCert)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if result.FailureReason != failureX509ChainFailure {
+		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureX509ChainFailure)
+	}
+	if result.ChainStatusFlags == nil || *result.ChainStatusFlags != chainFlagNotTimeValid {
+		t.Fatalf("ChainStatusFlags = %v, want %d", result.ChainStatusFlags, chainFlagNotTimeValid)
+	}
+	if result.RootInTrustStore != nil {
+		t.Fatalf("RootInTrustStore = %v, want nil for a non-trust chain failure", *result.RootInTrustStore)
+	}
+	if result.Tls == nil || result.Tls.VerifiedChainPem != pemEncodeCerts(leaf, ca) {
+		t.Fatal("expected VerifiedChainPem for an expired leaf from a trusted CA")
+	}
+}
+
+// A certificate without serverAuth from a trusted CA reports the path too;
+// the server judges the usage itself.
+func TestCheckDomainMonitor_WrongUsageStillReportsVerifiedChain(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "monitor-test-client-auth"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	port := startTLSListener(t, tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key})
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+
+	if result.FailureReason != failureX509ChainFailure {
+		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureX509ChainFailure)
+	}
+	if result.ChainStatusFlags == nil || *result.ChainStatusFlags != chainFlagNotValidForUsage {
+		t.Fatalf("ChainStatusFlags = %v, want %d", result.ChainStatusFlags, chainFlagNotValidForUsage)
+	}
+	if result.Tls == nil || result.Tls.VerifiedChainPem != pemEncodeCerts(leaf) {
+		t.Fatal("expected VerifiedChainPem for a trusted certificate with the wrong usage")
+	}
+}
+
+// Without a certificate there is nothing to show, so no probe connections
+// are made at all.
+func TestCheckDomainMonitor_NoCertificateMeansNoProbes(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	var accepted atomic.Int32
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			accepted.Add(1)
+			conn.Close()
+		}
+	}()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, nil)
+
+	if result.FailureReason != failureUnableToRetrieveCertificate {
+		t.Fatalf("FailureReason = %q, want %q", result.FailureReason, failureUnableToRetrieveCertificate)
+	}
+	if result.Tls != nil {
+		t.Fatal("expected no TLS details without a certificate")
+	}
+	if got := accepted.Load(); got != 1 {
+		t.Fatalf("accepted %d connections, want only the monitoring one", got)
+	}
+}
+
+// The server reads these exact field names (AgentApiController's TlsObservation).
+func TestDomainMonitoringResultUpdate_TlsWireFormat(t *testing.T) {
+	result := api.DomainMonitoringResultUpdate{
+		DomainId: "d1",
+		Tls: &api.MonitorTlsDetails{
+			RemoteIp: "10.0.4.20",
+			Probes: []api.MonitorTlsProbe{
+				{Id: probeIdModern, Succeeded: true, Version: tls.VersionTLS13, CipherSuite: tls.TLS_AES_128_GCM_SHA256, CurveId: uint16(tls.X25519MLKEM768)},
+				{Id: probeIdLegacy, Error: "remote error: tls: protocol version not supported"},
+			},
+		},
+	}
+
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	want := `"tls":{"remote_ip":"10.0.4.20","probes":[` +
+		`{"id":"modern","succeeded":true,"version":772,"cipher_suite":4865,"curve_id":4588},` +
+		`{"id":"legacy","succeeded":false,"error":"remote error: tls: protocol version not supported"}]}`
+	if !strings.Contains(string(encoded), want) {
+		t.Fatalf("encoded = %s, want it to contain %s", encoded, want)
+	}
+
+	withoutTls, err := json.Marshal(api.DomainMonitoringResultUpdate{DomainId: "d1"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(withoutTls), `"tls"`) {
+		t.Fatalf("encoded = %s, want no tls field", withoutTls)
 	}
 }
 
