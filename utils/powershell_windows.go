@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// utf8OutputPrefix is prepended to every script handed to powershell.exe.  Switching the console output
+// encoding up front makes PowerShell, and the native commands it runs, emit UTF-8 instead.
+const utf8OutputPrefix = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n"
+
 func RunPowerShell(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	isScriptFile := false
@@ -34,7 +38,7 @@ func RunPowerShell(input string) (string, error) {
 			"-NoProfile",
 			"-NonInteractive",
 			"-ExecutionPolicy", "Bypass",
-			"-Command", input,
+			"-Command", utf8OutputPrefix+input,
 		)
 	}
 
@@ -75,7 +79,7 @@ func RunPowerShellViaStdin(scriptContent string) (string, error) {
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptContent))
 
 	// Fixed bootstrapper — no user data interpolated here. Edit with care.
-	bootstrap := `try { $encoded = [Console]::In.ReadToEnd(); $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded)); & ([scriptblock]::Create($script)); exit 0 } catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }`
+	bootstrap := utf8OutputPrefix + `try { $encoded = [Console]::In.ReadToEnd(); $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded)); & ([scriptblock]::Create($script)); exit 0 } catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }`
 
 	cmd := exec.Command(
 		"powershell.exe",

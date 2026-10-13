@@ -9,8 +9,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -681,5 +683,76 @@ func TestFormatSerialNumber(t *testing.T) {
 				t.Fatalf("formatSerialNumber() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestMonitorKeyUsages(t *testing.T) {
+	rdpOnly := &x509.Certificate{UnknownExtKeyUsage: []asn1.ObjectIdentifier{oidRemoteDesktopAuthentication}}
+	serverAuthAndRdp := &x509.Certificate{
+		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		UnknownExtKeyUsage: []asn1.ObjectIdentifier{oidRemoteDesktopAuthentication},
+	}
+	serverAuthOnly := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	clientAuthOnly := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+
+	tests := []struct {
+		name string
+		port int
+		leaf *x509.Certificate
+		want x509.ExtKeyUsage
+	}{
+		{"rdp eku on rdp port", rdpPort, rdpOnly, x509.ExtKeyUsageAny},
+		{"rdp eku on another port", 443, rdpOnly, x509.ExtKeyUsageServerAuth},
+		{"server auth and rdp eku on rdp port", rdpPort, serverAuthAndRdp, x509.ExtKeyUsageServerAuth},
+		{"server auth on rdp port", rdpPort, serverAuthOnly, x509.ExtKeyUsageServerAuth},
+		{"client auth on rdp port", rdpPort, clientAuthOnly, x509.ExtKeyUsageServerAuth},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := monitorKeyUsages(tt.port, tt.leaf)
+			if len(got) != 1 || got[0] != tt.want {
+				t.Fatalf("monitorKeyUsages() = %v, want [%v]", got, tt.want)
+			}
+		})
+	}
+}
+
+// AD CS Remote Desktop templates issue only the RDP EKU. Such a certificate
+// must verify on the RDP port and still fail for usage on any other port.
+func TestMonitorKeyUsages_RdpOnlyCertificateVerifies(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "monitor-test-rdp"},
+		NotBefore:          time.Now().Add(-time.Hour),
+		NotAfter:           time.Now().Add(24 * time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		UnknownExtKeyUsage: []asn1.ObjectIdentifier{oidRemoteDesktopAuthentication},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+
+	pool := x509.NewCertPool()
+	pool.AddCert(leaf)
+
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: monitorKeyUsages(rdpPort, leaf)}); err != nil {
+		t.Fatalf("expected the RDP-only certificate to verify on the RDP port: %v", err)
+	}
+
+	_, err = leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: monitorKeyUsages(443, leaf)})
+	var invalidErr x509.CertificateInvalidError
+	if !errors.As(err, &invalidErr) || invalidErr.Reason != x509.IncompatibleUsage {
+		t.Fatalf("expected IncompatibleUsage on port 443, got %v", err)
 	}
 }
