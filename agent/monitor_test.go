@@ -19,6 +19,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -340,6 +341,63 @@ func TestCheckDomainMonitor_HostnameMismatchShortCircuitsBeforeChain(t *testing.
 	}
 	if result.ChainPem != pemEncodeCerts(leaf) {
 		t.Fatal("expected ChainPem to carry the served chain on hostname mismatch")
+	}
+}
+
+// A server hosting several sites on one address picks its certificate by SNI.
+// The host name override goes out as SNI on the monitoring handshake and on
+// every probe, and the certificate is judged against the override rather than
+// the address dialed.
+func TestCheckDomainMonitor_SniHostNameOverride(t *testing.T) {
+	siteCert, siteLeaf := newSelfSignedCert(t, []string{"app.corp.local"}, nil, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	defaultCert, _ := newSelfSignedCert(t, []string{"default.corp.local"}, nil, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+
+	var serverNamesLock sync.Mutex
+	var serverNames []string
+	port := startProbeListener(t, &tls.Config{
+		// Called for every ClientHello, before the server judges the versions offered.
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			serverNamesLock.Lock()
+			serverNames = append(serverNames, hello.ServerName)
+			serverNamesLock.Unlock()
+			return nil, nil
+		},
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			if hello.ServerName == "app.corp.local" {
+				return &siteCert, nil
+			}
+			return &defaultCert, nil
+		},
+	})
+
+	pool := x509.NewCertPool()
+	pool.AddCert(siteLeaf)
+
+	result := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port, SniHostName: "app.corp.local"}, pool)
+
+	if !result.Success {
+		t.Fatalf("expected success, got failure %q (flags %v)", result.FailureReason, result.ChainStatusFlags)
+	}
+	if result.ChainPem != pemEncodeCerts(siteLeaf) {
+		t.Fatal("expected the certificate the server picked for the override")
+	}
+
+	serverNamesLock.Lock()
+	sent := append([]string(nil), serverNames...)
+	serverNamesLock.Unlock()
+	if len(sent) != 1+len(monitorProbes) {
+		t.Fatalf("server saw %d handshakes (%v), want the monitoring one and %d probes", len(sent), sent, len(monitorProbes))
+	}
+	for _, name := range sent {
+		if name != "app.corp.local" {
+			t.Fatalf("server names sent = %v, want app.corp.local on every handshake", sent)
+		}
+	}
+
+	// The address alone gets the server's default certificate, which doesn't cover it.
+	withoutOverride := checkDomainMonitor(config.DomainMonitorConfig{DomainId: "d1", DomainName: "127.0.0.1", Port: port}, pool)
+	if withoutOverride.FailureReason != failureCertificateDoesNotCoverDomain {
+		t.Fatalf("FailureReason without the override = %q, want %q", withoutOverride.FailureReason, failureCertificateDoesNotCoverDomain)
 	}
 }
 
@@ -667,6 +725,27 @@ func TestDomainMonitoringResultUpdate_TlsWireFormat(t *testing.T) {
 	}
 }
 
+// The server sends null for a host without an override, and compares the
+// override the agent echoes back on each poll (AgentApiController's poll diff).
+func TestPollDomainMonitor_SniHostNameWireFormat(t *testing.T) {
+	var monitor api.PollResponseDomainMonitor
+	response := `{"domain_id":"d1","domain_name":"10.0.4.20","port":443,"check_requested_date":null,"sni_host_name":null}`
+	if err := json.Unmarshal([]byte(response), &monitor); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if monitor.SniHostName != "" {
+		t.Fatalf("SniHostName = %q, want empty for null", monitor.SniHostName)
+	}
+
+	encoded, err := json.Marshal(api.PollRequestDomainMonitor{DomainId: "d1", DomainName: "10.0.4.20", Port: 443, SniHostName: "app.corp.local"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"sni_host_name":"app.corp.local"`) {
+		t.Fatalf("encoded = %s, want it to carry sni_host_name", encoded)
+	}
+}
+
 func TestEncodeChainPem_Caps(t *testing.T) {
 	_, leaf := newSelfSignedCert(t, nil, []net.IP{net.ParseIP("127.0.0.1")}, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 
@@ -774,6 +853,25 @@ func TestApplyDomainMonitorUpdates_PortChangeResetsLastChecked(t *testing.T) {
 	}
 	if monitor.LastChecked != nil {
 		t.Fatal("port change should reset LastChecked")
+	}
+}
+
+func TestApplyDomainMonitorUpdates_SniHostNameChangeResetsLastChecked(t *testing.T) {
+	checked := time.Now().UTC()
+	setupMonitorConfig(t, []config.DomainMonitorConfig{
+		{DomainId: "d1", DomainName: "10.0.4.20", Port: 443, LastChecked: &checked},
+	})
+
+	applyDomainMonitorUpdates([]api.PollResponseDomainMonitor{
+		{DomainId: "d1", DomainName: "10.0.4.20", Port: 443, SniHostName: "app.corp.local"},
+	})
+
+	monitor := config.CurrentConfig.DomainMonitors[0]
+	if monitor.SniHostName != "app.corp.local" {
+		t.Fatalf("SniHostName = %q, want app.corp.local", monitor.SniHostName)
+	}
+	if monitor.LastChecked != nil {
+		t.Fatal("host name override change should reset LastChecked")
 	}
 }
 

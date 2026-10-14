@@ -44,9 +44,10 @@ type PollResponsePrivateCA struct {
 }
 
 type PollRequestDomainMonitor struct {
-	DomainId   string `json:"domain_id"`
-	DomainName string `json:"domain_name"`
-	Port       int    `json:"port"`
+	DomainId    string `json:"domain_id"`
+	DomainName  string `json:"domain_name"`
+	Port        int    `json:"port"`
+	SniHostName string `json:"sni_host_name,omitempty"`
 }
 
 type PollResponseDomainMonitor struct {
@@ -54,6 +55,7 @@ type PollResponseDomainMonitor struct {
 	DomainName         string `json:"domain_name"`
 	Port               int    `json:"port"`
 	CheckRequestedDate string `json:"check_requested_date"`
+	SniHostName        string `json:"sni_host_name"` // host name override; null when there is none
 }
 
 // ConfigurationPollResponse is the agent-facing decoded poll response.
@@ -129,9 +131,10 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 	requestMonitors := make([]PollRequestDomainMonitor, 0, len(config.CurrentConfig.DomainMonitors))
 	for _, monitor := range config.CurrentConfig.DomainMonitors {
 		requestMonitors = append(requestMonitors, PollRequestDomainMonitor{
-			DomainId:   monitor.DomainId,
-			DomainName: monitor.DomainName,
-			Port:       monitor.Port,
+			DomainId:    monitor.DomainId,
+			DomainName:  monitor.DomainName,
+			Port:        monitor.Port,
+			SniHostName: monitor.SniHostName,
 		})
 	}
 

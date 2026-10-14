@@ -59,8 +59,8 @@ func monitorRoots() *x509.CertPool {
 
 // applyDomainMonitorUpdates applies the server's monitor list as the
 // authoritative set: entries not present are dropped from config. LastChecked
-// is cleared when the name or port changed so the edited monitor is re-checked
-// on the next synchronization.
+// is cleared when the name, port or host name override changed so the edited
+// monitor is re-checked on the next synchronization.
 func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 	previous := config.CurrentConfig.DomainMonitors
 
@@ -82,13 +82,14 @@ func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 			DomainId:        in.DomainId,
 			DomainName:      in.DomainName,
 			Port:            in.Port,
+			SniHostName:     in.SniHostName,
 			PendingCheckNow: in.CheckRequestedDate,
 		}
 
 		prev, existed := previousByID[in.DomainId]
 		if existed {
 			entry.LastCheckNowHonored = prev.LastCheckNowHonored
-			if prev.DomainName == in.DomainName && prev.Port == in.Port {
+			if prev.DomainName == in.DomainName && prev.Port == in.Port && prev.SniHostName == in.SniHostName {
 				entry.LastChecked = prev.LastChecked
 			}
 		}
@@ -98,6 +99,7 @@ func applyDomainMonitorUpdates(incoming []api.PollResponseDomainMonitor) {
 			changed = true
 		} else if prev.DomainName != in.DomainName ||
 			prev.Port != in.Port ||
+			prev.SniHostName != in.SniHostName ||
 			prev.PendingCheckNow != in.CheckRequestedDate {
 			changed = true
 		}
@@ -200,8 +202,16 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	serverName := monitor.DomainName
-	if net.ParseIP(monitor.DomainName) != nil {
+	// The name the certificate must cover, and the one sent as SNI: the host
+	// name override when the server picks its certificate by a different name
+	// than the one dialed (an IP address, a load balancer's own name).
+	certificateName := monitor.DomainName
+	if monitor.SniHostName != "" {
+		certificateName = monitor.SniHostName
+	}
+
+	serverName := certificateName
+	if net.ParseIP(certificateName) != nil {
 		// No SNI for IP targets, mirroring how the cloud prober behaves.
 		serverName = ""
 	}
@@ -281,7 +291,7 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 		Probes:           append([]api.MonitorTlsProbe{modern}, runMonitorProbes(monitor, serverName)...),
 	}
 
-	if err := leaf.VerifyHostname(monitor.DomainName); err != nil {
+	if err := leaf.VerifyHostname(certificateName); err != nil {
 		result.FailureReason = failureCertificateDoesNotCoverDomain
 		return result
 	}
