@@ -128,9 +128,11 @@ func TestNegotiateStartTLS_Refused(t *testing.T) {
 			conn := dialFakeStartTLSServer(t, startFakeStartTLSServer(t, serverCert, exchange.greeting, replies))
 
 			err := negotiateStartTLS(conn, exchange.port)
-			refusal := strings.TrimSpace(exchange.refusal)
-			if err == nil || !strings.Contains(err.Error(), refusal) {
-				t.Fatalf("negotiateStartTLS error = %v, want it to quote %q", err, refusal)
+			// SMTP and FTP refusals surface as a textproto.Error, which quotes the
+			// text apart from the code (454 "4.7.0 ..."), so look for each half.
+			code, text, _ := strings.Cut(strings.TrimSpace(exchange.refusal), " ")
+			if err == nil || !strings.Contains(err.Error(), code) || !strings.Contains(err.Error(), text) {
+				t.Fatalf("negotiateStartTLS error = %v, want it to quote %q and %q", err, code, text)
 			}
 		})
 	}
