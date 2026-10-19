@@ -85,6 +85,7 @@ type DomainMonitorConfig struct {
 	DomainId            string     `json:"domain_id"`
 	DomainName          string     `json:"domain_name"`
 	Port                int        `json:"port"`
+	SniHostName         string     `json:"sni_host_name,omitempty"` // host name override: sent as SNI and checked against the certificate in place of DomainName
 	LastChecked         *time.Time `json:"last_checked,omitempty"`
 	LastCheckNowHonored string     `json:"last_check_now_honored,omitempty"` // server's check_requested_date we already acted on
 	PendingCheckNow     string     `json:"pending_check_now,omitempty"`      // check_requested_date from the latest poll response
