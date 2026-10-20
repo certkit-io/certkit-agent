@@ -1,9 +1,6 @@
 module github.com/certkit-io/certkit-agent
 
-go 1.26.0
-
-// Builds (CI and releases read this file) use the latest 1.26 patch release.
-toolchain go1.26.9
+go 1.26.10
 
 // Go 1.25 stopped accepting SHA-1 signatures in TLS 1.2 handshakes (RFC 9155).
 // Old appliances (iLO/iDRAC firmware, switches, printers) still sign with
