@@ -49,7 +49,7 @@ func runWindowsCertStoreUpdateCmd(configID, thumbprint, updateCmd string, vars [
 	}
 
 	log.Printf("Running windows-cert-store update command for config %s (vars=%d)", configID, appliedVarCount)
-	out, err := utils.RunPowerShellViaStdin(script)
+	out, err := utils.RunPowerShellViaStdin(script, updateCommandTimeout)
 	logPowerShellOutput("runWindowsCertStoreUpdateCmd", out)
 	return out, err
 }

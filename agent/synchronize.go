@@ -27,6 +27,11 @@ const (
 	statusErrorGeneral   = "ERROR_GENERAL"
 )
 
+// updateCommandTimeout is how long an update command may run before the agent
+// kills it, along with every process it started. A deploy script stuck on a
+// prompt nobody will answer would otherwise block the agent indefinitely.
+const updateCommandTimeout = 20 * time.Minute
+
 func SynchronizeCertificates(configChanges map[string]ConfigChange, forceSync bool) []api.AgentConfigStatusUpdate {
 	statuses := make([]api.AgentConfigStatusUpdate, 0, len(config.CurrentConfig.CertificateConfigurations))
 	configDirty := false

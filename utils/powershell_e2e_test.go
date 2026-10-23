@@ -5,6 +5,7 @@ package utils
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // End-to-end tests that build a script the way runUpdateCommand does and run
@@ -24,7 +25,7 @@ type scriptScenario struct {
 func runScenario(t *testing.T, s scriptScenario) {
 	t.Helper()
 	script, _ := BuildPowerShellScript(s.userCmd, s.vars, s.sysInject)
-	out, err := RunPowerShellViaStdin(script)
+	out, err := RunPowerShellViaStdin(script, time.Minute)
 	if s.wantErr && err == nil {
 		t.Fatalf("expected error, got success.\nout=%s", out)
 	}
@@ -262,7 +263,7 @@ Write-Host "C"`,
 	})
 	// Also assert ordering explicitly.
 	script, _ := BuildPowerShellScript("Write-Host A\nWrite-Host B\nWrite-Host C", nil, "")
-	out, err := RunPowerShellViaStdin(script)
+	out, err := RunPowerShellViaStdin(script, time.Minute)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -294,4 +295,33 @@ func TestE2E_ScriptUsesVariableThenSystemInjectedVar(t *testing.T) {
 		sysInject: "$thumbprint = 'ABC123'\n",
 		wantOut:   []string{"binding ABC123 to MyApp"},
 	})
+}
+
+// --- Timeout -----------------------------------------------------------------
+
+// A script still running at the timeout is killed along with the processes it
+// started, and the output it wrote before that is kept. ping.exe shares the
+// script's output pipe (-NoNewWindow), so the call cannot return before ping.exe
+// would finish on its own (~60s) unless ping.exe was killed too.
+func TestE2E_TimeoutStopsScriptAndItsChildren(t *testing.T) {
+	script, _ := BuildPowerShellScript(`Write-Host "before-timeout"
+Start-Process ping.exe -ArgumentList '-n', '60', '127.0.0.1' -NoNewWindow -Wait
+Write-Host "should-not-reach"`, nil, "")
+
+	start := time.Now()
+	out, err := RunPowerShellViaStdin(script, 3*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected a timeout error, got %v\nout=%s", err, out)
+	}
+	if !strings.Contains(out, "before-timeout") {
+		t.Errorf("expected output written before the timeout to be kept\nout=%s", out)
+	}
+	if strings.Contains(out, "should-not-reach") {
+		t.Errorf("script kept running past the timeout\nout=%s", out)
+	}
+	if elapsed > 30*time.Second {
+		t.Errorf("took %s to return from a 3s timeout; ping.exe was not killed with the script", elapsed)
+	}
 }

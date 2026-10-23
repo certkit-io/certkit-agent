@@ -3,11 +3,18 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // utf8OutputPrefix is prepended to every script handed to powershell.exe.  Switching the console output
@@ -73,15 +80,31 @@ func RunPowerShell(input string) (string, error) {
 // .NET's Console.Error stream rather than calling Write-Error, which would
 // otherwise be wrapped in CLIXML when stderr is redirected to a pipe.
 //
+// The script gets at most timeout to run. If it is still running then, it is
+// killed along with every process it started, and whatever it printed up to
+// that point is returned alongside the timeout error.
+//
 // Other call sites that build inline scripts from trusted, escaped values
 // should keep using RunPowerShell.
-func RunPowerShellViaStdin(scriptContent string) (string, error) {
+func RunPowerShellViaStdin(scriptContent string, timeout time.Duration) (string, error) {
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptContent))
 
 	// Fixed bootstrapper — no user data interpolated here. Edit with care.
 	bootstrap := utf8OutputPrefix + `try { $encoded = [Console]::In.ReadToEnd(); $script = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encoded)); & ([scriptblock]::Create($script)); exit 0 } catch { [Console]::Error.WriteLine(($_ | Out-String)); exit 1 }`
 
-	cmd := exec.Command(
+	// powershell.exe runs inside a job object so a timeout can kill the whole
+	// process tree. Killing powershell.exe alone would leave anything it started
+	// (ssh.exe, python.exe, ...) running and holding the output pipe open.
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create job object: %w", err)
+	}
+	defer windows.CloseHandle(job)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx,
 		"powershell.exe",
 		"-NoProfile",
 		"-NonInteractive",
@@ -89,9 +112,52 @@ func RunPowerShellViaStdin(scriptContent string) (string, error) {
 		"-Command", bootstrap,
 	)
 	cmd.Stdin = strings.NewReader(encodedScript)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	cmd.Cancel = func() error {
+		return windows.TerminateJobObject(job, 1)
+	}
+	// Once the script exits or is killed, wait at most a minute more for its
+	// output, in case something it started is still holding the pipe open.
+	cmd.WaitDelay = time.Minute
 
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	// powershell.exe needs hundreds of milliseconds to load before the script
+	// can start anything, so nothing escapes the job before this runs. If it
+	// fails anyway, a timeout still kills powershell.exe once WaitDelay passes.
+	if err := assignProcessToJob(job, cmd.Process.Pid); err != nil {
+		log.Printf("Warning: could not add powershell.exe to a job object; a timeout will only stop powershell.exe itself: %v", err)
+	}
+
+	err = cmd.Wait()
+	output := strings.TrimSpace(out.String())
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The script finished successfully; something it started in the
+		// background is still holding the output pipe open.
+		return output, nil
+	}
+	if err != nil && ctx.Err() != nil {
+		log.Printf("PowerShell script timed out after %s; stopped it and every process it started", timeout)
+		return output, fmt.Errorf("timed out after %s; stopped the script and every process it started", timeout)
+	}
+	return output, err
+}
+
+// assignProcessToJob adds a running process to a job object. Processes it
+// starts from then on are created inside the job too.
+func assignProcessToJob(job windows.Handle, pid int) error {
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		return fmt.Errorf("open process %d: %w", pid, err)
+	}
+	defer windows.CloseHandle(process)
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		return fmt.Errorf("assign process %d to job: %w", pid, err)
+	}
+	return nil
 }
 
 // BuildPowerShellScript composes the inner script body that
