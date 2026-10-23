@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -323,5 +324,42 @@ Write-Host "should-not-reach"`, nil, "")
 	}
 	if elapsed > 30*time.Second {
 		t.Errorf("took %s to return from a 3s timeout; ping.exe was not killed with the script", elapsed)
+	}
+}
+
+// StopRunningScripts kills a running script the same way a timeout does, and
+// refuses to start scripts after that.
+func TestE2E_StopRunningScriptsStopsScriptAndItsChildren(t *testing.T) {
+	t.Cleanup(func() {
+		// StopRunningScripts lasts for the life of the process; undo it so later
+		// tests can run scripts.
+		agentStopping, markAgentStopping = context.WithCancel(context.Background())
+	})
+
+	script, _ := BuildPowerShellScript(`Write-Host "before-stop"
+Start-Process ping.exe -ArgumentList '-n', '60', '127.0.0.1' -NoNewWindow -Wait
+Write-Host "should-not-reach"`, nil, "")
+
+	time.AfterFunc(3*time.Second, StopRunningScripts)
+	start := time.Now()
+	out, err := RunPowerShellViaStdin(script, time.Minute)
+	elapsed := time.Since(start)
+
+	if err == nil || !strings.Contains(err.Error(), "interrupted because the agent service was stopping") {
+		t.Fatalf("expected an interrupted error, got %v\nout=%s", err, out)
+	}
+	if !strings.Contains(out, "before-stop") {
+		t.Errorf("expected output written before the stop to be kept\nout=%s", out)
+	}
+	if strings.Contains(out, "should-not-reach") {
+		t.Errorf("script kept running past the stop\nout=%s", out)
+	}
+	if elapsed > 30*time.Second {
+		t.Errorf("took %s to return after a stop at 3s; ping.exe was not killed with the script", elapsed)
+	}
+
+	out, err = RunPowerShellViaStdin(`Write-Host "after-stop"`, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "not started") {
+		t.Fatalf("expected a script after StopRunningScripts to be refused, got %v\nout=%s", err, out)
 	}
 }

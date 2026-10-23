@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -82,11 +83,18 @@ func RunPowerShell(input string) (string, error) {
 //
 // The script gets at most timeout to run. If it is still running then, it is
 // killed along with every process it started, and whatever it printed up to
-// that point is returned alongside the timeout error.
+// that point is returned alongside the timeout error. StopRunningScripts kills
+// it the same way. If the agent process exits while the script is running,
+// Windows kills the script and everything it started.
 //
 // Other call sites that build inline scripts from trusted, escaped values
 // should keep using RunPowerShell.
 func RunPowerShellViaStdin(scriptContent string, timeout time.Duration) (string, error) {
+	if agentStopping.Err() != nil {
+		log.Printf("Not starting PowerShell script because the agent service is stopping")
+		return "", errors.New("not started because the agent service was stopping")
+	}
+
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(scriptContent))
 
 	// Fixed bootstrapper — no user data interpolated here. Edit with care.
@@ -99,9 +107,22 @@ func RunPowerShellViaStdin(scriptContent string, timeout time.Duration) (string,
 	if err != nil {
 		return "", fmt.Errorf("create job object: %w", err)
 	}
-	defer windows.CloseHandle(job)
+	// If the agent process exits while the script is running, Windows closes the
+	// job and kills everything in it, instead of leaving the script running with
+	// nothing left to stop it. Once the script is done the setting is cleared,
+	// so processes it deliberately left running in the background keep running,
+	// as they always have.
+	if err := setKillOnJobClose(job, true); err != nil {
+		log.Printf("Warning: could not set the job object to kill the script if the agent exits: %v", err)
+	}
+	defer func() {
+		if err := setKillOnJobClose(job, false); err != nil {
+			log.Printf("Warning: could not clear kill-on-close on the job object: %v", err)
+		}
+		windows.CloseHandle(job)
+	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(agentStopping, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx,
@@ -139,6 +160,10 @@ func RunPowerShellViaStdin(scriptContent string, timeout time.Duration) (string,
 		// background is still holding the output pipe open.
 		return output, nil
 	}
+	if err != nil && agentStopping.Err() != nil {
+		log.Printf("PowerShell script interrupted because the agent service is stopping; stopped it and every process it started")
+		return output, errors.New("interrupted because the agent service was stopping; stopped the script and every process it started")
+	}
 	if err != nil && ctx.Err() != nil {
 		log.Printf("PowerShell script timed out after %s; stopped it and every process it started", timeout)
 		return output, fmt.Errorf("timed out after %s; stopped the script and every process it started", timeout)
@@ -158,6 +183,36 @@ func assignProcessToJob(job windows.Handle, pid int) error {
 		return fmt.Errorf("assign process %d to job: %w", pid, err)
 	}
 	return nil
+}
+
+// setKillOnJobClose turns on or off killing every process in a job when the
+// last handle to the job is closed, which also happens when the process that
+// holds the handle exits.
+func setKillOnJobClose(job windows.Handle, kill bool) error {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if kill {
+		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	}
+	_, err := windows.SetInformationJobObject(
+		job,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	)
+	return err
+}
+
+// agentStopping is canceled by StopRunningScripts. Every script
+// RunPowerShellViaStdin runs is tied to it.
+var agentStopping, markAgentStopping = context.WithCancel(context.Background())
+
+// StopRunningScripts is called when the agent service is stopping. It kills
+// any script RunPowerShellViaStdin is running, along with every process the
+// script started, and makes later calls fail without starting a script. The
+// callers get an error back, so a deploy cut short this way is recorded as
+// failed instead of holding up the stop.
+func StopRunningScripts() {
+	markAgentStopping()
 }
 
 // BuildPowerShellScript composes the inner script body that
