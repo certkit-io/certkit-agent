@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(GOOS=windows go vet:*)"
+      "Bash(GOOS=windows go vet:*)",
+      "Bash(go build:*)",
+      "Bash(rm:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(go get:*)",
+      "Bash(find C:SourceCertKitOthercertkit-agent -type f -name *sync* -o -name *synchronize*)",
+      "Bash(xargs grep:*)",
+      "Bash(ls:*)",
+      "Bash(wc -l C:/Source/CertKitOther/certkit-agent/selfupdate/*.go)",
+      "PowerShell(Get-ItemProperty *)"
     ]
   }
 }

@@ -151,10 +151,30 @@ if (Test-Path $ConfigPath) {
     Remove-Item -Path $ConfigPath -Force -ErrorAction SilentlyContinue
 }
 
+# %ProgramData%\CertKit is shared with other CertKit products (certkit-keystore
+# keeps its stored certificates there), so remove only the agent's own data,
+# and the folder itself only once nothing else is left in it.
 if (-not [string]::IsNullOrWhiteSpace($env:ProgramData)) {
     $programDataCertKit = Join-Path $env:ProgramData "CertKit"
+
+    # Older installs baked doubled backslashes into paths; normalize before comparing.
+    $configDir = Split-Path -Parent ($ConfigPath -replace '\\\\', '\')
+    if ((Split-Path -Parent $configDir) -eq $programDataCertKit -and (Test-Path $configDir)) {
+        Remove-Item -Path $configDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $agentIdPath = Join-Path $programDataCertKit "agent-id"
+    if (Test-Path $agentIdPath) {
+        Remove-Item -Path $agentIdPath -Force -ErrorAction SilentlyContinue
+    }
+
     if (Test-Path $programDataCertKit) {
-        Remove-Item -Path $programDataCertKit -Recurse -Force -ErrorAction SilentlyContinue
+        # Non-recursive delete: it fails, leaving the folder, if anything is still in it.
+        try {
+            [System.IO.Directory]::Delete($programDataCertKit)
+        } catch {
+            Write-Host "Leaving $programDataCertKit in place; it still contains other files."
+        }
     }
 }
 
