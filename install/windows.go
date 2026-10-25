@@ -195,10 +195,10 @@ func UninstallWindows(args []string, defaultServiceName string) {
 }
 
 // removeAgentProgramData deletes the agent's own data from %ProgramData%\CertKit:
-// the directory holding its config and log, and its persisted machine identity.
-// Other CertKit products share that folder (certkit-keystore keeps its stored
-// certificates there), so the CertKit folder itself is only removed once
-// nothing else is left in it.
+// the directory holding its config and log (by default certkit-agent, which also
+// holds the machine ID file). Other CertKit products share the CertKit folder
+// (certkit-keystore keeps its stored certificates there), so it is only removed
+// once nothing else is left in it.
 func removeAgentProgramData(configPath string) error {
 	programData := os.Getenv("ProgramData")
 	if programData == "" {
@@ -216,12 +216,6 @@ func removeAgentProgramData(configPath string) error {
 			return fmt.Errorf("remove agent data directory %s: %w", configDir, err)
 		}
 		log.Printf("Removed agent data directory %s", configDir)
-	}
-
-	// utils.GetStableMachineID only writes this file when MachineGuid is unreadable.
-	agentIDPath := filepath.Join(certkitDir, "agent-id")
-	if err := os.Remove(agentIDPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove agent identity file %s: %w", agentIDPath, err)
 	}
 
 	entries, err := os.ReadDir(certkitDir)

@@ -146,9 +146,22 @@ jobs:
           New-Item -ItemType Directory -Force (Split-Path -Parent $keystoreFile) | Out-Null
           '{}' | Set-Content -Encoding ascii $keystoreFile
 
+          # Machine ID file where older versions kept it; the service moves it
+          # into the agent's folder when it starts.
+          $legacyIdFile = "C:\ProgramData\CertKit\agent-id"
+          $machineId = "ci-smoke-test-machine-id"
+          $machineId | Set-Content -Encoding ascii $legacyIdFile
+
           $msi = (Resolve-Path "dist\msi\certkit-agent_windows_amd64.msi").Path
           $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'msi-install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "MSI install failed with exit code $($p.ExitCode)" }
+
+          # The MSI starts the service without waiting, so give it time to start.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path $legacyIdFile) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          if (Test-Path $legacyIdFile) { throw "service did not move the machine ID file out of ProgramData\CertKit" }
+          $movedId = Get-Content -Raw -ErrorAction SilentlyContinue "$cfgDir\agent-id"
+          if ("$movedId".Trim() -ne $machineId) { throw "machine ID file missing from $cfgDir or its ID changed in the move" }
 
           if (-not (Get-Service certkit-agent -ErrorAction SilentlyContinue)) { throw "service was not created" }
           $arp = Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' |

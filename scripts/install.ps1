@@ -163,11 +163,6 @@ if (-not [string]::IsNullOrWhiteSpace($env:ProgramData)) {
         Remove-Item -Path $configDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    $agentIdPath = Join-Path $programDataCertKit "agent-id"
-    if (Test-Path $agentIdPath) {
-        Remove-Item -Path $agentIdPath -Force -ErrorAction SilentlyContinue
-    }
-
     if (Test-Path $programDataCertKit) {
         # Non-recursive delete: it fails, leaving the folder, if anything is still in it.
         try {
