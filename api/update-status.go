@@ -24,7 +24,20 @@ type AgentConfigStatusUpdateBatch struct {
 	Updates []AgentConfigStatusUpdate `json:"updates"`
 }
 
+// UpdateConfigStatus reports certificate configuration statuses to the server,
+// retrying a failed send up to maxRetries times.
 func UpdateConfigStatus(updates []AgentConfigStatusUpdate) error {
+	err := updateConfigStatusOnce(updates)
+	for retry := 1; retry <= maxRetries && shouldRetry(err); retry++ {
+		if !waitToRetry("Update status", retry, err) {
+			break
+		}
+		err = updateConfigStatusOnce(updates)
+	}
+	return err
+}
+
+func updateConfigStatusOnce(updates []AgentConfigStatusUpdate) error {
 	if config.CurrentConfig.Agent == nil || config.CurrentConfig.Agent.AgentId == "" {
 		return fmt.Errorf("missing agent id")
 	}
@@ -80,5 +93,5 @@ func UpdateConfigStatus(updates []AgentConfigStatusUpdate) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	return fmt.Errorf("update status failed: status=%d body=%s", resp.StatusCode, body)
+	return &statusCodeError{operation: "update status", statusCode: resp.StatusCode, body: body}
 }
