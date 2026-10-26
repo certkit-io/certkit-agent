@@ -23,7 +23,7 @@ func runUpdateCommand(cfg config.CertificateConfiguration, vars []utils.UpdateVa
 
 	log.Printf("Running update command for config %s (vars=%d)", cfg.Id, appliedVarCount)
 
-	out, err := utils.RunPowerShellViaStdin(script)
+	out, err := utils.RunPowerShellViaStdin(script, updateCommandTimeout)
 	if out != "" {
 		log.Printf("Update command output for config %s:\n%s", cfg.Id, out)
 	}

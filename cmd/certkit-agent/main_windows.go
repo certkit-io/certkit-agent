@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	agentinstall "github.com/certkit-io/certkit-agent/install"
+	"github.com/certkit-io/certkit-agent/utils"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -185,6 +186,19 @@ type windowsService struct {
 	serviceName string
 }
 
+// The agent loop only notices a stop request between sync cycles, so an update
+// command that is running holds up the stop. A stop waits up to
+// serviceStopGrace for the loop to finish, then kills running update commands
+// (their deploys are recorded as failed), then waits up to serviceStopDeadline
+// more before the service stops anyway.
+const (
+	serviceStopGrace    = 30 * time.Second
+	serviceStopDeadline = 30 * time.Second
+)
+
+// serviceStopWaitHint tells Windows how long a stop can take, in milliseconds.
+const serviceStopWaitHint = uint32((serviceStopGrace + serviceStopDeadline + 5*time.Second) / time.Millisecond)
+
 func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
 
@@ -216,20 +230,49 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 		case svc.Interrogate:
 			changes <- c.CurrentStatus
 		case svc.Stop, svc.Shutdown:
-			changes <- svc.Status{State: svc.StopPending}
+			changes <- svc.Status{State: svc.StopPending, WaitHint: serviceStopWaitHint}
 			close(stopCh)
-			<-done
+			if c.Cmd == svc.Shutdown {
+				// Windows gives services only a short time to stop during a
+				// shutdown, so kill a running update command right away, while
+				// there is still time to record its deploy as failed.
+				utils.StopRunningScripts()
+			}
+			waitForAgentToStop(done)
 			changes <- svc.Status{State: svc.Stopped}
 			return false, 0
 		default:
 		}
 	}
 
-	changes <- svc.Status{State: svc.StopPending}
+	changes <- svc.Status{State: svc.StopPending, WaitHint: serviceStopWaitHint}
 	close(stopCh)
-	<-done
+	waitForAgentToStop(done)
 	changes <- svc.Status{State: svc.Stopped}
 	return false, 0
+}
+
+// waitForAgentToStop waits for the agent loop to return after a stop request.
+// If it is still busy after serviceStopGrace, most likely because an update
+// command is running, running update commands are killed so their deploys are
+// recorded as failed. If the loop still hasn't returned serviceStopDeadline
+// after that, it gives up so the service can stop anyway; an update command
+// that is somehow still running is killed when the agent process exits.
+func waitForAgentToStop(done <-chan struct{}) {
+	select {
+	case <-done:
+		return
+	case <-time.After(serviceStopGrace):
+	}
+
+	log.Printf("Agent still busy %s after the stop request; stopping any running update command", serviceStopGrace)
+	utils.StopRunningScripts()
+
+	select {
+	case <-done:
+	case <-time.After(serviceStopDeadline):
+		log.Printf("Agent still busy %s after stopping update commands; stopping the service anyway", serviceStopDeadline)
+	}
 }
 
 // ensureDelayedAutoStart switches an Automatic service to Automatic (Delayed

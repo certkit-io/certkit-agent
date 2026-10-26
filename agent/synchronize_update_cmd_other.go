@@ -3,10 +3,14 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/utils"
@@ -25,12 +29,33 @@ func runUpdateCommand(cfg config.CertificateConfiguration, vars []utils.UpdateVa
 
 	log.Printf("Running update command for config %s (interpreter=%s, vars=%d)", cfg.Id, interpreter, appliedVarCount)
 
-	cmd := exec.Command(interpreter, "-s")
+	ctx, cancel := context.WithTimeout(context.Background(), updateCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, interpreter, "-s")
 	cmd.Stdin = strings.NewReader(script)
+	// The shell leads its own process group so a timeout can kill everything
+	// the command started (ssh, curl, ...), not just the shell.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	// Once the command exits or is killed, wait at most a minute more for its
+	// output, in case something it started is still holding the pipe open.
+	cmd.WaitDelay = time.Minute
 
 	combinedOutput, err := cmd.CombinedOutput()
 	if len(combinedOutput) > 0 {
 		log.Printf("Update command output for config %s:\n%s", cfg.Id, string(combinedOutput))
+	}
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command finished successfully; something it started in the
+		// background is still holding the output pipe open.
+		err = nil
+	}
+	if err != nil && ctx.Err() != nil {
+		log.Printf("Update command for config %s timed out after %s; stopped it and every process it started", cfg.Id, updateCommandTimeout)
+		return string(combinedOutput), fmt.Errorf("update command failed: timed out after %s; stopped the script and every process it started", updateCommandTimeout)
 	}
 	if err != nil {
 		return string(combinedOutput), fmt.Errorf("update command failed: %w", err)
