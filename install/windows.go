@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/certkit-io/certkit-agent/config"
@@ -186,16 +187,58 @@ func UninstallWindows(args []string, defaultServiceName string) {
 	}
 	log.Printf("Removed config file %s", *configPath)
 
-	programData := os.Getenv("ProgramData")
-	if programData != "" {
-		programDataCertKit := filepath.Join(programData, "CertKit")
-		if err := os.RemoveAll(programDataCertKit); err != nil {
-			log.Fatalf("failed to remove ProgramData directory %s: %v", programDataCertKit, err)
-		}
-		log.Printf("Removed ProgramData directory %s", programDataCertKit)
+	if err := removeAgentProgramData(*configPath); err != nil {
+		log.Fatalf("failed to remove agent data from ProgramData: %v", err)
 	}
 
 	log.Printf("Uninstall completed for service %s", *serviceName)
+}
+
+// removeAgentProgramData deletes the agent's own data from %ProgramData%\CertKit:
+// the directory holding its config and log (by default certkit-agent, which also
+// holds the machine ID file). Other CertKit products share the CertKit folder
+// (certkit-keystore keeps its stored certificates there), so it is only removed
+// once nothing else is left in it.
+func removeAgentProgramData(configPath string) error {
+	programData := os.Getenv("ProgramData")
+	if programData == "" {
+		return nil
+	}
+	certkitDir := filepath.Join(programData, "CertKit")
+
+	// Only delete the config directory when it sits directly inside the CertKit
+	// folder (certkit-agent by default); a custom --config elsewhere may share
+	// its directory with unrelated files. Clean first: older script installs
+	// baked doubled backslashes into the path, and filepath.Dir keeps them.
+	configDir := filepath.Dir(filepath.Clean(configPath))
+	if strings.EqualFold(filepath.Dir(configDir), certkitDir) {
+		if err := os.RemoveAll(configDir); err != nil {
+			return fmt.Errorf("remove agent data directory %s: %w", configDir, err)
+		}
+		log.Printf("Removed agent data directory %s", configDir)
+	}
+
+	entries, err := os.ReadDir(certkitDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read directory %s: %w", certkitDir, err)
+	}
+	if len(entries) > 0 {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		log.Printf("Leaving %s in place; it still contains: %s", certkitDir, strings.Join(names, ", "))
+		return nil
+	}
+	// os.Remove (unlike RemoveAll) refuses a directory that is no longer empty.
+	if err := os.Remove(certkitDir); err != nil {
+		return fmt.Errorf("remove empty directory %s: %w", certkitDir, err)
+	}
+	log.Printf("Removed empty directory %s", certkitDir)
+	return nil
 }
 
 func configureRecovery(s *mgr.Service) error {

@@ -206,6 +206,10 @@ func (s *windowsService) Execute(_ []string, r <-chan svc.ChangeRequest, changes
 
 	initServiceLogging(s.configPath)
 
+	if err := utils.MoveLegacyMachineIDFile(); err != nil {
+		log.Printf("Warning: failed to move machine ID file: %v", err)
+	}
+
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	go func() {

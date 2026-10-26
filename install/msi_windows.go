@@ -68,13 +68,7 @@ func MsiCleanupWindows(args []string) {
 		log.Printf("Removed config file %s", *configPath)
 	}
 
-	programData := os.Getenv("ProgramData")
-	if programData != "" {
-		programDataCertKit := filepath.Join(programData, "CertKit")
-		if err := os.RemoveAll(programDataCertKit); err != nil {
-			log.Printf("Warning: failed to remove ProgramData directory %s: %v", programDataCertKit, err)
-		} else {
-			log.Printf("Removed ProgramData directory %s", programDataCertKit)
-		}
+	if err := removeAgentProgramData(*configPath); err != nil {
+		log.Printf("Warning: failed to remove agent data from ProgramData: %v", err)
 	}
 }

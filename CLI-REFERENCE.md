@@ -115,8 +115,9 @@ certkit-agent bootstrap-config [--key REGISTRATION_KEY] [--service-name NAME] [-
 ### `msi-cleanup` (Windows, MSI internal)
 
 Used by the MSI installer during uninstall (never during upgrades); not intended for manual
-use. Performs the best-effort unregister call to CertKit and removes the config file and
-`%ProgramData%\CertKit`. Always exits 0 so cleanup problems cannot block an uninstall.
+use. Performs the best-effort unregister call to CertKit and removes the agent's config
+directory; `%ProgramData%\CertKit` itself is removed only
+when nothing else is left in it. Always exits 0 so cleanup problems cannot block an uninstall.
 
 ```text
 certkit-agent msi-cleanup [--config PATH]

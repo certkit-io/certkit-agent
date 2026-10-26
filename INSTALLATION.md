@@ -184,7 +184,10 @@ msiexec /x $app.IdentifyingNumber /qn /norestart
 ```
 
 Uninstalling removes the service, the event log source, the agent's configuration and
-identity (`%ProgramData%\CertKit`), and performs a best-effort unregister call to CertKit.
+identity (`%ProgramData%\CertKit\certkit-agent`), and
+performs a best-effort unregister call to CertKit. `%ProgramData%\CertKit` itself is removed
+only when nothing else is left in it, so other CertKit products installed on the same machine
+(such as the CertKit Keystore) keep their data.
 Deployed certificates and imported CA roots are intentionally left in place.
 
 CLI fallback (legacy script-based installs):
