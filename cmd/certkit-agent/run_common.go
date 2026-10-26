@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/certkit-io/certkit-agent/agent"
+	"github.com/certkit-io/certkit-agent/api"
 	"github.com/certkit-io/certkit-agent/config"
 	"github.com/certkit-io/certkit-agent/selfupdate"
 )
@@ -40,6 +41,7 @@ func runAgent(opts runOptions) {
 
 	log.Printf("API Base: %s", config.CurrentConfig.ApiBase)
 
+	api.SetStopChannel(opts.stopCh)
 	agent.InitKeystoreFromConfig()
 
 	registeredOnStartup := false
@@ -76,11 +78,28 @@ func runAgent(opts runOptions) {
 			log.Printf("received stop signal, shutting down")
 			return
 		case <-ticker.C:
+			// A sync that runs past 30 seconds leaves a tick waiting alongside
+			// any stop request that came in meanwhile, and select picks between
+			// ready cases at random, so check for a stop before syncing again.
+			if stopRequested(opts.stopCh) {
+				log.Printf("received stop signal, shutting down")
+				return
+			}
 			agent.PollAndSync(false)
 			if selfupdate.HandleUpdateIfNeeded(opts.configPath) {
 				selfupdate.TriggerRestart()
 			}
 		}
+	}
+}
+
+// stopRequested reports whether stopCh has been closed, without waiting.
+func stopRequested(stopCh <-chan struct{}) bool {
+	select {
+	case <-stopCh:
+		return true
+	default:
+		return false
 	}
 }
 

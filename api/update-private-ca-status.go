@@ -25,7 +25,20 @@ type AgentPrivateCaStatusUpdateBatch struct {
 	Updates []AgentPrivateCaStatusUpdate `json:"updates"`
 }
 
+// UpdatePrivateCaStatus reports private CA trust statuses to the server,
+// retrying a failed send up to maxRetries times.
 func UpdatePrivateCaStatus(updates []AgentPrivateCaStatusUpdate) error {
+	err := updatePrivateCaStatusOnce(updates)
+	for retry := 1; retry <= maxRetries && shouldRetry(err); retry++ {
+		if !waitToRetry("Update private CA status", retry, err) {
+			break
+		}
+		err = updatePrivateCaStatusOnce(updates)
+	}
+	return err
+}
+
+func updatePrivateCaStatusOnce(updates []AgentPrivateCaStatusUpdate) error {
 	if config.CurrentConfig.Agent == nil || config.CurrentConfig.Agent.AgentId == "" {
 		return fmt.Errorf("missing agent id")
 	}
@@ -81,5 +94,5 @@ func UpdatePrivateCaStatus(updates []AgentPrivateCaStatusUpdate) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	return fmt.Errorf("update private ca status failed: status=%d body=%s", resp.StatusCode, body)
+	return &statusCodeError{operation: "update private ca status", statusCode: resp.StatusCode, body: body}
 }

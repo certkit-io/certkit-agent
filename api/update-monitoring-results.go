@@ -60,7 +60,20 @@ type DomainMonitoringResultBatch struct {
 	Results []DomainMonitoringResultUpdate `json:"results"`
 }
 
+// UpdateMonitoringResults reports domain monitoring results to the server,
+// retrying a failed send up to maxRetries times.
 func UpdateMonitoringResults(results []DomainMonitoringResultUpdate) error {
+	err := updateMonitoringResultsOnce(results)
+	for retry := 1; retry <= maxRetries && shouldRetry(err); retry++ {
+		if !waitToRetry("Update monitoring results", retry, err) {
+			break
+		}
+		err = updateMonitoringResultsOnce(results)
+	}
+	return err
+}
+
+func updateMonitoringResultsOnce(results []DomainMonitoringResultUpdate) error {
 	if config.CurrentConfig.Agent == nil || config.CurrentConfig.Agent.AgentId == "" {
 		return fmt.Errorf("missing agent id")
 	}
@@ -116,5 +129,5 @@ func UpdateMonitoringResults(results []DomainMonitoringResultUpdate) error {
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	return fmt.Errorf("update monitoring results failed: status=%d body=%s", resp.StatusCode, body)
+	return &statusCodeError{operation: "update monitoring results", statusCode: resp.StatusCode, body: body}
 }
