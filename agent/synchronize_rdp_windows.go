@@ -27,23 +27,25 @@ func synchronizeRDPCertificate(cfg config.CertificateConfiguration, change Confi
 		serviceName: fmt.Sprintf("RDP/%s", role),
 		applyFn: func(thumbprint string) (string, error) {
 			if strings.EqualFold(role, "TerminalServices") || strings.EqualFold(role, "Terminal Services") {
-				return "", applyTerminalServicesCertificate(thumbprint)
+				return applyTerminalServicesCertificate(thumbprint)
 			}
-			return "", applyRDCertificate(thumbprint, role)
+			return applyRDCertificate(thumbprint, role)
 		},
 	})
 }
 
-func applyTerminalServicesCertificate(thumbprint string) error {
+func applyTerminalServicesCertificate(thumbprint string) (string, error) {
 	thumbprint = normalizeThumbprint(thumbprint)
 	if thumbprint == "" {
-		return fmt.Errorf("missing thumbprint for Terminal Services")
+		return "", fmt.Errorf("missing thumbprint for Terminal Services")
 	}
 
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
 
 $thumb = '%s'
+Write-Host "RDP Certificate Deployment  |  Role: Terminal Services  |  Thumbprint: $thumb"
+
 $certPath = "Cert:\LocalMachine\My\" + $thumb
 if (-not (Test-Path $certPath)) {
     throw "Certificate $thumb not found in LocalMachine\My store."
@@ -58,25 +60,33 @@ if (-not $tsSettings) {
 
 $currentThumb = ($tsSettings.SSLCertificateSHA1Hash -replace '\s', '').ToUpper()
 if ($currentThumb -eq $thumb.ToUpper()) {
-    Write-Host "Terminal Services certificate already set to $thumb. No update needed."
+    Write-Host "DONE  |  Terminal Services already uses $thumb. No update needed."
     return
 }
+
+$previousThumb = if ($currentThumb) { $currentThumb } else { 'none' }
+Write-Host "  Updating Terminal Services listener: $previousThumb -> $thumb"
 
 $tsPath = $tsSettings | Get-CimInstance
 Set-CimInstance -InputObject $tsPath -Property @{ SSLCertificateSHA1Hash = $thumb } -ErrorAction Stop
 
-Write-Host "Terminal Services certificate updated to $thumb."
+Write-Host "DONE  |  Terminal Services certificate updated to $thumb"
 `, escapePowerShellString(thumbprint))
 
 	out, err := utils.RunPowerShell(script)
 	logPowerShellOutput("applyTerminalServicesCertificate", out)
-	return err
+	if err != nil {
+		// RunPowerShell already wraps the output into err; returning out too
+		// would duplicate it in the status message.
+		return "", err
+	}
+	return out, nil
 }
 
-func applyRDCertificate(thumbprint string, role string) error {
+func applyRDCertificate(thumbprint string, role string) (string, error) {
 	thumbprint = normalizeThumbprint(thumbprint)
 	if thumbprint == "" {
-		return fmt.Errorf("missing thumbprint for RD certificate role %s", role)
+		return "", fmt.Errorf("missing thumbprint for RD certificate role %s", role)
 	}
 
 	script := fmt.Sprintf(`
@@ -86,6 +96,7 @@ try { Import-Module RemoteDesktopServices -ErrorAction Stop } catch {}
 
 $thumb = '%s'
 $role = '%s'
+Write-Host "RDP Certificate Deployment  |  Role: $role  |  Thumbprint: $thumb"
 
 $certPath = "Cert:\LocalMachine\My\" + $thumb
 if (-not (Test-Path $certPath)) {
@@ -94,10 +105,15 @@ if (-not (Test-Path $certPath)) {
 
 Set-RDCertificate -Role $role -Thumbprint $thumb -Force -ErrorAction Stop
 
-Write-Host "RD certificate for role '$role' updated to $thumb."
+Write-Host "DONE  |  RD certificate for role '$role' updated to $thumb"
 `, escapePowerShellString(thumbprint), escapePowerShellString(role))
 
 	out, err := utils.RunPowerShell(script)
 	logPowerShellOutput("applyRDCertificate", out)
-	return err
+	if err != nil {
+		// RunPowerShell already wraps the output into err; returning out too
+		// would duplicate it in the status message.
+		return "", err
+	}
+	return out, nil
 }

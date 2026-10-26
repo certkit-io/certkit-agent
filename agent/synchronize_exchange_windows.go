@@ -75,6 +75,8 @@ if (-not (Get-PSSnapin -Name Microsoft.Exchange.Management.PowerShell.SnapIn -Er
 }
 
 $thumb = '%s'
+Write-Host "Exchange Certificate Deployment  |  Services: %s  |  Thumbprint: $thumb"
+
 $certPath = "Cert:\LocalMachine\My\" + $thumb
 if (-not (Test-Path $certPath)) {
     throw "Certificate $thumb not found in LocalMachine\My store."
@@ -89,7 +91,7 @@ if ($missingServices.Count -eq 0) {
     Enable-ExchangeCertificate -Thumbprint $thumb -Services %s -Force
     Write-Host "Exchange certificate $thumb enabled for services $($wantedServices -join ',')."
 }
-`, escapePowerShellString(thumbprint), services, services)
+`, escapePowerShellString(thumbprint), services, services, services)
 
 	if servicesIncludeSMTP(services) {
 		script += exchangeConnectorScript

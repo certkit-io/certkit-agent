@@ -26,7 +26,7 @@ func synchronizeIISCertificate(cfg config.CertificateConfiguration, change Confi
 	return synchronizeWindowsServiceCert(cfg, change, windowsSyncConfig{
 		serviceName: "IIS",
 		applyFn: func(thumbprint string) (string, error) {
-			return "", applyIISBinding(siteName, port, host, thumbprint)
+			return applyIISBinding(siteName, port, host, thumbprint)
 		},
 	})
 }
@@ -52,14 +52,19 @@ func parseIISDestination(value string) (site string, port string, host string, e
 	return site, port, host, nil
 }
 
-func applyIISBinding(siteName, port, host, thumbprint string) error {
+func applyIISBinding(siteName, port, host, thumbprint string) (string, error) {
 	if thumbprint == "" {
-		return fmt.Errorf("missing thumbprint for IIS binding")
+		return "", fmt.Errorf("missing thumbprint for IIS binding")
 	}
 	script := buildIISBindingScript(siteName, port, host, thumbprint)
 	out, err := utils.RunPowerShell(script)
 	logPowerShellOutput("applyIISBinding", out)
-	return err
+	if err != nil {
+		// RunPowerShell already wraps the output into err; returning out too
+		// would duplicate it in the status message.
+		return "", err
+	}
+	return out, nil
 }
 
 func buildIISBindingScript(siteName, port, host, thumbprint string) string {
@@ -70,12 +75,16 @@ func buildIISBindingScript(siteName, port, host, thumbprint string) string {
 	useSNI := host != ""
 	bindingLookup := "Get-WebBinding -Name $site -Protocol https -Port $port"
 	bindingDesc := "site '$site' on port $port"
+	headerTarget := "Site: $site  |  Port: $port"
 	if useSNI {
 		bindingLookup += " -HostHeader $bindingHost"
 		bindingDesc += " for host '$bindingHost'"
+		headerTarget += "  |  Host: $bindingHost"
 	}
 
 	return fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+
 Import-Module WebAdministration
 
 $site        = '%s'
@@ -83,9 +92,13 @@ $port        = '%s'
 $bindingHost = '%s'
 $newThumb    = '%s'
 
+Write-Host "IIS Certificate Deployment  |  %s  |  Thumbprint: $newThumb"
+
 $bindings = %s
 if (-not $bindings) { throw "No HTTPS bindings found for %s." }
 
+$updated = 0
+$alreadyCurrent = 0
 foreach ($binding in @($bindings)) {
     # Resolve currently bound cert thumbprint (if any)
     $currentThumbprint = if ($binding.CertificateHash) {
@@ -94,16 +107,18 @@ foreach ($binding in @($bindings)) {
     }
 
     if ($currentThumbprint -eq $newThumb) {
-        Write-Host "Certificate already current for $site ($($binding.bindingInformation)). No update needed."
+        Write-Host "  Binding '$($binding.bindingInformation)' already uses $newThumb. No update needed."
+        $alreadyCurrent++
         continue
     }
 
-    Write-Host "Updating $site ($($binding.bindingInformation)) -> $newThumb..."
+    $previousThumbprint = if ($binding.CertificateHash) { $binding.CertificateHash -join '' } else { 'none' }
+    Write-Host "  Updating binding '$($binding.bindingInformation)': $previousThumbprint -> $newThumb"
 
     $binding.AddSslCertificate($newThumb, "My")
-
+    $updated++
 }
 
-Write-Host "IIS bindings updated."
-`, escapePowerShellString(siteName), escapePowerShellString(port), escapePowerShellString(host), escapePowerShellString(thumbprint), bindingLookup, bindingDesc)
+Write-Host "DONE  |  Site '$site': $updated binding(s) updated, $alreadyCurrent already current"
+`, escapePowerShellString(siteName), escapePowerShellString(port), escapePowerShellString(host), escapePowerShellString(thumbprint), headerTarget, bindingLookup, bindingDesc)
 }

@@ -18,7 +18,7 @@ func synchronizeWindowsCertStoreCertificate(cfg config.CertificateConfiguration,
 		applyFn: func(thumbprint string) (string, error) {
 			if strings.TrimSpace(cfg.UpdateCmd) == "" {
 				log.Print("No update command configured; skipping update command.")
-				return "", nil
+				return fmt.Sprintf("DONE  |  Certificate %s is in LocalMachine\\My. No update command configured.", thumbprint), nil
 			}
 			out, err := runWindowsCertStoreUpdateCmd(cfg.Id, thumbprint, cfg.UpdateCmd, getUpdateVariables(cfg.Id))
 			if out != "" {
