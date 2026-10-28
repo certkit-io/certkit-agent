@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
@@ -284,10 +285,18 @@ func checkDomainMonitor(monitor config.DomainMonitorConfig, roots *x509.CertPool
 		KeyUsages:     monitorKeyUsages(monitor.Port, leaf),
 	}
 	chains, verifyErr := leaf.Verify(verifyOptions)
+	if verifyErr != nil {
+		log.Printf("Host monitor %s (%s:%d, remote %s): certificate chain verification failed: %v", monitor.DomainId, monitor.DomainName, monitor.Port, remoteIP, verifyErr)
+	}
+	reportedChain := verifiedChainForReport(leaf, verifyOptions, chains, verifyErr)
+	if verifyErr == nil {
+		anchor := reportedChain[len(reportedChain)-1]
+		log.Printf("Host monitor %s (%s:%d, remote %s): certificate chain verified; reporting %d certificates, trust anchor %q (SHA-256 %X)", monitor.DomainId, monitor.DomainName, monitor.Port, remoteIP, len(reportedChain), anchor.Subject.String(), sha256.Sum256(anchor.Raw))
+	}
 
 	result.Tls = &api.MonitorTlsDetails{
 		RemoteIp:         remoteIP,
-		VerifiedChainPem: encodeChainPem(verifiedChainForReport(leaf, verifyOptions, chains, verifyErr)),
+		VerifiedChainPem: encodeChainPem(reportedChain),
 		Probes:           append([]api.MonitorTlsProbe{modern}, runMonitorProbes(monitor, serverName)...),
 	}
 
@@ -360,7 +369,7 @@ func remoteIPOf(conn net.Conn) string {
 // second verification never changes the monitoring result.
 func verifiedChainForReport(leaf *x509.Certificate, options x509.VerifyOptions, chains [][]*x509.Certificate, verifyErr error) []*x509.Certificate {
 	if verifyErr == nil {
-		return chains[0]
+		return preferredVerifiedChain(chains)
 	}
 
 	var invalidErr x509.CertificateInvalidError
@@ -377,7 +386,20 @@ func verifiedChainForReport(leaf *x509.Certificate, options x509.VerifyOptions, 
 	if err != nil {
 		return nil
 	}
-	return relaxedChains[0]
+	return preferredVerifiedChain(relaxedChains)
+}
+
+// Go may return a chain ending at a trusted intermediate before one reaching
+// a root. The server's CustomRootTrust verifier needs the latter when available.
+// Only select among verified chains; never add an unverified issuer.
+func preferredVerifiedChain(chains [][]*x509.Certificate) []*x509.Certificate {
+	for _, chain := range chains {
+		anchor := chain[len(chain)-1]
+		if bytes.Equal(anchor.RawSubject, anchor.RawIssuer) {
+			return chain
+		}
+	}
+	return chains[0]
 }
 
 // monitorKeyUsages returns the usages the served certificate must be valid
