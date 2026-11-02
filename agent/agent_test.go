@@ -599,6 +599,124 @@ func TestSynchronizeCertificates_NormalPollStaysQuietWhenSyncedAndUnchanged(t *t
 	}
 }
 
+// windowExcludingToday returns a deploy window whose only day is tomorrow, so
+// the current time always falls outside it.
+func windowExcludingToday() string {
+	tomorrow := time.Now().Add(24 * time.Hour).Weekday().String()[:3]
+	return "days=" + tomorrow + "|time=00:00-23:59"
+}
+
+func TestSynchronizeCertificates_ForceSyncOutsideWindowStaysQuietWhenNothingToDo(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	// An agent restart (nightly reboot) force syncs outside the deploy window
+	// with the deployed certificate up to date. The config must not be parked
+	// as WAITING_FOR_WINDOW, which would run the update command for nothing
+	// when the window opens. LastStatus is empty because the startup poll
+	// replaced the config list, which only carries over unresolved statuses.
+	certPath := filepath.Join(t.TempDir(), "cert.pem")
+	certSha1 := writeSelfSignedCertPEM(t, certPath)
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        certPath,
+				AllInOne:              true,
+				LatestCertificateSha1: certSha1,
+				UpdateWindow:          windowExcludingToday(),
+				UpdateCmd:             "echo hi",
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, true)
+
+	if len(statuses) != 1 || statuses[0].Status != statusSynced {
+		t.Fatalf("statuses = %+v, want a single %s", statuses, statusSynced)
+	}
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusSynced {
+		t.Fatalf("LastStatus = %q, want %q", got, statusSynced)
+	}
+}
+
+func TestSynchronizeCertificates_ForceSyncOutsideWindowWaitsWhenCertificateMissing(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	// Same restart, but the certificate was never written: there is real work,
+	// so the config waits for the window instead of fetching now.
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        filepath.Join(t.TempDir(), "missing.pem"),
+				AllInOne:              true,
+				LatestCertificateSha1: "abc",
+				UpdateWindow:          windowExcludingToday(),
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(nil, true)
+
+	if len(statuses) != 1 || statuses[0].Status != statusWaitingWindow {
+		t.Fatalf("statuses = %+v, want a single %s", statuses, statusWaitingWindow)
+	}
+	if got := config.CurrentConfig.CertificateConfigurations[0].LastStatus; got != statusWaitingWindow {
+		t.Fatalf("LastStatus = %q, want %q", got, statusWaitingWindow)
+	}
+}
+
+func TestSynchronizeCertificates_ChangedConfigOutsideWindowWaits(t *testing.T) {
+	previousConfig := config.CurrentConfig
+	previousPath := config.CurrentPath
+	t.Cleanup(func() {
+		config.CurrentConfig = previousConfig
+		config.CurrentPath = previousPath
+	})
+
+	// A changed config always has work (its update command re-runs), so it
+	// waits for the window even though the deployed certificate is current.
+	certPath := filepath.Join(t.TempDir(), "cert.pem")
+	certSha1 := writeSelfSignedCertPEM(t, certPath)
+
+	config.CurrentPath = filepath.Join(t.TempDir(), "config.json")
+	config.CurrentConfig = config.Config{
+		CertificateConfigurations: []config.CertificateConfiguration{
+			{
+				Id:                    "a",
+				CertificateId:         "cert-a",
+				PemDestination:        certPath,
+				AllInOne:              true,
+				LatestCertificateSha1: certSha1,
+				UpdateWindow:          windowExcludingToday(),
+				UpdateCmd:             "echo hi",
+				LastStatus:            statusSynced,
+			},
+		},
+	}
+
+	statuses := SynchronizeCertificates(map[string]ConfigChange{"a": {Changed: true}}, false)
+
+	if len(statuses) != 1 || statuses[0].Status != statusWaitingWindow {
+		t.Fatalf("statuses = %+v, want a single %s", statuses, statusWaitingWindow)
+	}
+}
+
 func TestIsErrorStatus(t *testing.T) {
 	for _, status := range []string{statusErrorUpdateCmd, statusErrorGetCert, statusErrorWriteCert, statusErrorGeneral} {
 		if !isErrorStatus(status) {

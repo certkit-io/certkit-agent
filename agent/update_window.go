@@ -42,6 +42,15 @@ func IsWithinUpdateWindow(now time.Time, window string) (bool, error) {
 	return nowMins >= parsed.startMins && nowMins < parsed.endMins, nil
 }
 
+// outsideDeployWindow reports whether the current time falls outside the
+// window. It serves synchronization paths that run after synchronizeCertificate
+// has already rejected an unparseable window, so a parse error simply counts
+// as outside.
+func outsideDeployWindow(window string) bool {
+	allowed, err := IsWithinUpdateWindow(time.Now(), window)
+	return err != nil || !allowed
+}
+
 func parseUpdateWindow(window string) (updateWindow, error) {
 	parts := strings.Split(window, "|")
 	if len(parts) != 2 {
