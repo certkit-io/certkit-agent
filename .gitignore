@@ -6,3 +6,4 @@
 /dev/**/certkit-agent.log
 /dev/**/*.vhd
 /dev/**/*.avhd
+.claude/settings.local.json

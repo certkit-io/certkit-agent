@@ -544,6 +544,92 @@ func TestCheckDomainMonitor_ReportsTlsDetailsOnSuccess(t *testing.T) {
 	}
 }
 
+func TestVerifiedChainForReport_TrustedIntermediate(t *testing.T) {
+	now := time.Now()
+	var certs []*x509.Certificate
+	var parentKey *ecdsa.PrivateKey
+	for i, name := range []string{"report-root", "report-intermediate", "report-leaf"} {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		template := &x509.Certificate{
+			SerialNumber:          big.NewInt(int64(i + 1)),
+			Subject:               pkix.Name{CommonName: name},
+			NotBefore:             now.Add(-time.Hour),
+			NotAfter:              now.Add(365 * 24 * time.Hour),
+			IsCA:                  i < 2,
+			BasicConstraintsValid: true,
+			KeyUsage:              x509.KeyUsageDigitalSignature,
+		}
+		if template.IsCA {
+			template.KeyUsage |= x509.KeyUsageCertSign
+		} else {
+			template.NotAfter = now.Add(24 * time.Hour)
+			template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+		}
+		parent, signer := template, key
+		if i > 0 {
+			parent, signer = certs[i-1], parentKey
+		}
+		der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, signer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatal(err)
+		}
+		certs = append(certs, cert)
+		parentKey = key
+	}
+	root, intermediate, leaf := certs[0], certs[1], certs[2]
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(intermediate)
+
+	for _, tt := range []struct {
+		name              string
+		trustRoot         bool
+		trustIntermediate bool
+		expired           bool
+		wrongUsage        bool
+		wantError         bool
+		want              string
+	}{
+		{name: "both trusted", trustRoot: true, trustIntermediate: true, want: pemEncodeCerts(leaf, intermediate, root)},
+		{name: "root only", trustRoot: true, want: pemEncodeCerts(leaf, intermediate, root)},
+		{name: "intermediate only", trustIntermediate: true, want: pemEncodeCerts(leaf, intermediate)},
+		{name: "neither trusted", wantError: true},
+		{name: "expired leaf", trustRoot: true, trustIntermediate: true, expired: true, wantError: true, want: pemEncodeCerts(leaf, intermediate, root)},
+		{name: "wrong usage", trustRoot: true, trustIntermediate: true, wrongUsage: true, wantError: true, want: pemEncodeCerts(leaf, intermediate, root)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			roots := x509.NewCertPool()
+			if tt.trustRoot {
+				roots.AddCert(root)
+			}
+			if tt.trustIntermediate {
+				roots.AddCert(intermediate)
+			}
+			options := x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now}
+			if tt.expired {
+				options.CurrentTime = now.Add(48 * time.Hour)
+			}
+			if tt.wrongUsage {
+				options.KeyUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+			}
+			chains, err := leaf.Verify(options)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("Verify error = %v, wantError = %v", err, tt.wantError)
+			}
+			reported := verifiedChainForReport(leaf, options, chains, err)
+			if pemEncodeCerts(reported...) != tt.want {
+				t.Fatalf("reported %d certificates; expected the complete verified path when available", len(reported))
+			}
+		})
+	}
+}
+
 // The chain is verified before the hostname check, so the panels can show its
 // trust status even when the name doesn't match.
 func TestCheckDomainMonitor_ReportsVerifiedChainOnHostnameMismatch(t *testing.T) {
