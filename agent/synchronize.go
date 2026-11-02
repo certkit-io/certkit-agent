@@ -113,7 +113,14 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 		status.Message = fmt.Sprintf("Skipped by invalid update_window: %s", cfg.UpdateWindow)
 		return status
 	}
-	if !allowed {
+	// Outside the window, a config with known work (it changed, or it is
+	// already waiting) waits right away. A force sync, which every agent
+	// start performs, brings configs here with no known work; those only
+	// wait further down, if the deployed certificate turns out to be missing
+	// or out of date. Otherwise a nightly reboot outside the window would
+	// queue an update command run in every window with nothing to deploy.
+	knownWork := change.Changed || change.FormatChanged || cfg.LastStatus == statusWaitingWindow
+	if !allowed && knownWork {
 		if change.Changed {
 			log.Printf("Waiting on synchronization for config %s: outside deploy window: %q", cfg.Id, cfg.UpdateWindow)
 		}
@@ -165,6 +172,14 @@ func synchronizeCertificate(cfg config.CertificateConfiguration, change ConfigCh
 
 	shouldFetch := needsFetch || change.FormatChanged
 	needsApply := needsFetch || change.Changed || resumeApply
+
+	// Only a force sync with no known work gets this far outside the window.
+	if !allowed && (shouldFetch || needsApply) {
+		log.Printf("Waiting on synchronization for config %s: deployed certificate is missing or out of date, outside deploy window: %q", cfg.Id, cfg.UpdateWindow)
+		status.Status = statusWaitingWindow
+		status.Message = "Waiting for deploy window to finish synchronization."
+		return status
+	}
 
 	if shouldFetch {
 		if isJks {

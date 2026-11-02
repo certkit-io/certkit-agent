@@ -50,6 +50,15 @@ func synchronizeWindowsServiceCert(cfg config.CertificateConfiguration, change C
 	shouldFetch := needsFetch
 	shouldApply := needsFetch || change.Changed || resumeApply
 
+	// Only a force sync with no known work gets this far outside the window
+	// (see synchronizeCertificate).
+	if (shouldFetch || shouldApply) && outsideDeployWindow(cfg.UpdateWindow) {
+		log.Printf("Waiting on %s synchronization for config %s: certificate is not in the store, outside deploy window: %q", svc.serviceName, cfg.Id, cfg.UpdateWindow)
+		status.Status = statusWaitingWindow
+		status.Message = "Waiting for deploy window to finish synchronization."
+		return status
+	}
+
 	importedPfx := false
 	if shouldFetch {
 		log.Printf("Fetching new %s PFX for config %s and certificate %s", svc.serviceName, cfg.Id, cfg.CertificateId)

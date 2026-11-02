@@ -103,7 +103,54 @@ if (-not (Test-Path $certPath)) {
     throw "Certificate $thumb not found in LocalMachine\My store."
 }
 
-Set-RDCertificate -Role $role -Thumbprint $thumb -Force -ErrorAction Stop
+try {
+    Set-RDCertificate -Role $role -Thumbprint $thumb -Force -ErrorAction Stop
+} catch {
+    # Set-RDCertificate assigns the certificate and then restarts the role's
+    # service, giving up after 30 seconds. That limit is Microsoft's, and RD
+    # Gateway often needs longer. So after any failure, settle the role's
+    # service ourselves and check whether the certificate took before giving up.
+    Write-Host "  Set-RDCertificate failed: $($_.Exception.Message.Trim())"
+
+    $serviceName = if ($role -eq 'RDGateway') { 'TSGateway' } else { $null }
+    $service = $null
+    if ($serviceName) {
+        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    }
+    if ($service -and $service.Status -like '*Pending') {
+        Write-Host "  Waiting up to 5 minutes for service $serviceName to finish restarting"
+        $deadline = (Get-Date).AddMinutes(5)
+        while ($service.Status -like '*Pending' -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $service.Refresh()
+        }
+    }
+    if ($service -and $service.Status -eq 'Stopped') {
+        Write-Host "  Service $serviceName is stopped; starting it"
+        Start-Service -Name $serviceName
+        $service.Refresh()
+    }
+    if ($service -and $service.Status -ne 'Running') {
+        Write-Host "  Service $serviceName is $($service.Status); giving up"
+        throw
+    }
+
+    try {
+        $applied = (Get-RDCertificate -Role $role -ErrorAction Stop).Thumbprint -replace '\s', ''
+    } catch {
+        Write-Host "  Could not read the certificate for role '$role': $($_.Exception.Message.Trim())"
+        $applied = ''
+    }
+    if ($applied -ne $thumb) {
+        Write-Host "  Role '$role' reports certificate '$applied' instead of '$thumb'; giving up"
+        throw
+    }
+    if ($service) {
+        Write-Host "  Service $serviceName is running and role '$role' reports the new certificate"
+    } else {
+        Write-Host "  Role '$role' reports the new certificate"
+    }
+}
 
 Write-Host "DONE  |  RD certificate for role '$role' updated to $thumb"
 `, escapePowerShellString(thumbprint), escapePowerShellString(role))
