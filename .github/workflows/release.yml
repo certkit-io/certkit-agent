@@ -1,9 +1,33 @@
 name: release
+run-name: release ${{ inputs.tag }}
+
+# Builds and signs the release assets and attaches them to a DRAFT release.
+# Publishing the draft in the GitHub UI is the manual last step.
+#
+# Releases in this repo are immutable: once published, assets can't be added
+# or changed, so they have to be on the release before it is published.
+#
+#   1. Optional: draft the release in the GitHub UI (tag vX.Y.Z, created on
+#      publish), write the notes and save the draft.
+#   2. Run this workflow from the branch or commit to release:
+#
+#        gh workflow run release.yml --ref main -f tag=vX.Y.Z
+#
+#      It attaches the assets to the draft with that tag (or creates the draft,
+#      with generated notes, if there is none) and points the draft at the
+#      commit that was built.
+#   3. Publish the draft. GitHub creates the tag at that commit, and the tag
+#      push triggers docker.yml to build and push the image.
+#
+# Pushing a tag by hand no longer builds release assets; run this workflow
+# with that tag instead (--ref vX.Y.Z builds the tagged commit).
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag: vMAJOR.MINOR.PATCH, or vMAJOR.MINOR.PATCH-suffix for a prerelease. Must match the draft's tag."
+        required: true
 
 permissions:
   contents: write
@@ -16,18 +40,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+          if ! [[ "$TAG" =~ $re ]]; then
+            echo "tag '$TAG' must be vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-<suffix>" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
 
+      # The tag does not exist yet (GitHub creates it when the draft is
+      # published), so the version is passed in instead of read from git.
       - name: Build artifacts
         run: ./scripts/build.sh
         env:
+          VERSION: ${{ inputs.tag }}
           SKIP_CHECKSUMS: "1"
 
       - uses: actions/upload-artifact@v4
@@ -58,11 +93,13 @@ jobs:
       - name: Compute MSI version
         id: version
         shell: pwsh
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           # Stable tags are vX.Y.Z; prerelease/test tags add a suffix, e.g.
           # v1.14.0-msi-alpha. MSI ProductVersion must be numeric X.Y.Z, so
           # the suffix is stripped here 
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:TAG
           if ($tag -notmatch '^v(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$') {
             throw "Tag '$tag' does not produce a valid MSI ProductVersion (need vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-<suffix>)"
           }
@@ -228,9 +265,17 @@ jobs:
           (cd dist/msi && sha256sum *) >> dist/certkit-agent_SHA256SUMS.txt
           cat dist/certkit-agent_SHA256SUMS.txt
 
-      - name: Create GitHub Release
+      # Attaches the assets to the draft release for this tag. The action
+      # creates the draft (with generated notes) if there is none; an existing
+      # draft keeps its notes and other settings. draft: true stops the action
+      # from publishing - that is the manual step, after the draft is reviewed.
+      - name: Attach assets to draft release
+        id: release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }}
+          draft: true
+          target_commitish: ${{ github.sha }}
           files: |
             dist/bin/*
             dist/msi/*
@@ -239,6 +284,16 @@ jobs:
           # Suffixed tags (v1.14.0-alpha) publish as prereleases: GitHub's
           # "latest release" pointer - and install.ps1's 'latest' routes -
           # keep serving the last stable release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(inputs.tag, '-') }}
+
+      # The tag is created when the draft is published, at the draft's target
+      # commit. The action only sets the target on drafts it creates itself, so
+      # an existing draft is pinned here to the commit that was actually built.
+      # (GitHub ignores the target if the tag already exists.)
+      - name: Point draft release at the built commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/${{ github.repository }}/releases/${{ steps.release.outputs.id }}" -f target_commitish="${{ github.sha }}"
 
   # The container image is built and pushed by .github/workflows/docker.yml
