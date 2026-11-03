@@ -27,17 +27,19 @@
 
     <!-- afterInstallValidate: the old product is fully removed first. Its
          uninstall runs with UPGRADINGPRODUCTCODE set, so MsiCleanup is
-         skipped and the agent's config/identity survive upgrades.
+         skipped and the agent's config/identity survive upgrades. It also
+         makes downgrades clean: the installed exe is removed before the
+         older one is copied in, so file-versioning rules never keep it.
 
-         AllowSameVersionUpgrades: prerelease tags (v1.14.0-alpha) strip
-         their suffix for ProductVersion, so a prerelease and its final are
-         both 1.14.0 - this makes the final upgrade the prerelease in place
-         instead of installing side by side. Caveat: any same-version MSI
-         replaces any other (e.g. alpha2 over the final), which is the
-         behavior testers want anyway. -->
-    <MajorUpgrade Schedule="afterInstallValidate"
-                  AllowSameVersionUpgrades="yes"
-                  DowngradeErrorMessage="A newer version of CertKit Agent is already installed."/>
+         AllowDowngrades: any version of this MSI replaces any installed
+         version - older, same, or newer - so customers can roll back by
+         installing an older MSI. This also covers prerelease tags
+         (v1.14.0-alpha strips its suffix for ProductVersion, so the alpha
+         and its final are both 1.14.0 and replace each other in place).
+         The agent self-updates to whatever version the server advertises,
+         so a rollback only sticks while the server does not offer a
+         different build. -->
+    <MajorUpgrade Schedule="afterInstallValidate" AllowDowngrades="yes"/>
 
     <MediaTemplate EmbedCab="yes"/>
 

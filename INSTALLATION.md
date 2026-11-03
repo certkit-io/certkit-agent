@@ -130,8 +130,10 @@ msiexec /i certkit-agent_windows_amd64.msi /qn /norestart REGISTRATIONKEY="your.
 ```
 
 `REGISTRATIONKEY` is only required on first install; upgrades and reinstalls over an
-existing configuration do not need it. The MSI upgrades in place (same or older versions
-are blocked; newer MSIs replace older installs while preserving configuration).
+existing configuration do not need it. Any version of the MSI replaces the installed one in
+place while preserving configuration, so installing an older MSI downgrades the agent. The
+agent self-updates to the version the CertKit server advertises, so a downgrade only holds
+while the server is not offering a different version.
 
 ### CLI Install Patterns
 
