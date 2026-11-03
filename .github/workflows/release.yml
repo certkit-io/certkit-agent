@@ -289,11 +289,26 @@ jobs:
       # The tag is created when the draft is published, at the draft's target
       # commit. The action only sets the target on drafts it creates itself, so
       # an existing draft is pinned here to the commit that was actually built.
+      # tag_name MUST be sent as well: a PATCH without it makes GitHub drop the
+      # draft's pending tag, and the draft then publishes as "untagged-<id>".
       # (GitHub ignores the target if the tag already exists.)
       - name: Point draft release at the built commit
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          SHA: ${{ github.sha }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
         run: |
-          gh api -X PATCH "repos/${{ github.repository }}/releases/${{ steps.release.outputs.id }}" -f target_commitish="${{ github.sha }}"
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$RELEASE_ID" -f tag_name="$TAG" -f target_commitish="$SHA" > release.json
+
+          # Refuse to go green unless the draft is exactly what will be published.
+          got_tag=$(jq -r .tag_name release.json)
+          got_draft=$(jq -r .draft release.json)
+          got_target=$(jq -r .target_commitish release.json)
+          if [ "$got_tag" != "$TAG" ] || [ "$got_draft" != "true" ] || [ "$got_target" != "$SHA" ]; then
+            echo "draft release $RELEASE_ID is not in the expected state (tag=$got_tag draft=$got_draft target=$got_target); fix it before publishing" >&2
+            exit 1
+          fi
+          echo "Assets attached to draft release '$(jq -r .name release.json)' (tag $TAG, target $SHA): $(jq -r .html_url release.json)" >> "$GITHUB_STEP_SUMMARY"
 
   # The container image is built and pushed by .github/workflows/docker.yml
