@@ -4,8 +4,9 @@
 
   This is the documented WiX customization route: a copy of the stock
   WixUI_InstallDir sequence (base fragment merged with its X64 overlay, from
-  wixtoolset/wix v6.0.2 src/ext/UI/wixlib/WixUI_InstallDir.wxs) with one
-  addition - a RegistrationKeyDlg between InstallDirDlg and VerifyReadyDlg.
+  wixtoolset/wix v6.0.2 src/ext/UI/wixlib/WixUI_InstallDir.wxs) with two
+  additions - a RegistrationKeyDlg between InstallDirDlg and VerifyReadyDlg, and
+  a Repair button that replaces the exe even when the one on disk is newer.
 
   The key page only appears on machines with no existing agent config
   (CONFIGEXISTS is set by an AppSearch file search in Package.wxs); upgrades,
@@ -72,6 +73,12 @@
       <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" />
       <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg" />
+
+      <!-- Stock Repair publishes ReinstallMode=ecmus at Order 1, which keeps an
+           exe newer than this MSI's: on a self-updated host it would report
+           success without changing anything. This overrides it before the
+           dialog ends at Order 3. -->
+      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="2" Condition="OutOfDiskSpace &lt;&gt; 1" />
 
       <Property Id="ARPNOMODIFY" Value="1" />
 

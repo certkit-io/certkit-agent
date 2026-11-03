@@ -27,19 +27,27 @@
 
     <!-- afterInstallValidate: the old product is fully removed first. Its
          uninstall runs with UPGRADINGPRODUCTCODE set, so MsiCleanup is
-         skipped and the agent's config/identity survive upgrades. It also
-         makes downgrades clean: the installed exe is removed before the
-         older one is copied in, so file-versioning rules never keep it.
+         skipped and the agent's config/identity survive upgrades.
 
          AllowDowngrades: any version of this MSI replaces any installed
          version - older, same, or newer - so customers can roll back by
          installing an older MSI. This also covers prerelease tags
          (v1.14.0-alpha strips its suffix for ProductVersion, so the alpha
          and its final are both 1.14.0 and replace each other in place).
-         The agent self-updates to whatever version the server advertises,
-         so a rollback only sticks while the server does not offer a
-         different build. -->
+         A rollback holds until someone requests an agent update in the
+         CertKit app, which moves the agent to the latest release.
+
+         REINSTALLMODE=amus: required whenever the exe on disk is newer than
+         the one in this MSI. MSI picks which files to copy in CostFinalize,
+         before RemoveExistingProducts runs, so by default it sees the newer
+         exe, skips the copy, then removes that exe with the old product and
+         the machine is left with no agent. This covers rollbacks and also
+         self-updated hosts, where the exe can be newer than the version MSI
+         has registered. The "a" forces the copy; the usual risk of that is
+         overwriting shared files with older ones, but the agent exe is the
+         only file in this package. -->
     <MajorUpgrade Schedule="afterInstallValidate" AllowDowngrades="yes"/>
+    <Property Id="REINSTALLMODE" Value="amus"/>
 
     <MediaTemplate EmbedCab="yes"/>
 
@@ -47,8 +55,23 @@
     <Property Id="ARPPRODUCTICON" Value="CertKitIcon"/>
     <Property Id="ARPHELPLINK" Value="https://certkit.io"/>
     <!-- ARPNOMODIFY=1 is set inside CertKitUI (as in stock WixUI_InstallDir). -->
-    <!-- Repair would clobber a self-updated (newer) agent exe, so disable it. -->
+    <!-- No Repair in Add/Remove Programs: putting a self-updated agent back to
+         the registered version should take deliberately running an MSI. -->
     <Property Id="ARPNOREPAIR" Value="1"/>
+
+    <!-- Running the MSI file that is already registered (same ProductCode) is
+         maintenance, not an upgrade, however far the exe has self-updated since.
+         That is the rollback to the originally installed version, so it has to
+         put this MSI's exe back:
+           - Silent: without REINSTALL, msiexec exits 0 having changed nothing.
+           - Wizard: ARPNOREPAIR would leave Remove as the only button, and Remove
+             unregisters the agent. Clearing it in the UI sequence enables the
+             Repair button; Add/Remove Programs keeps NoRepair afterwards.
+             CertKitUI makes that button force the copy. -->
+    <SetProperty Id="REINSTALL" Value="ALL" Sequence="execute" Before="CostInitialize"
+                 Condition="Installed AND NOT REMOVE AND NOT REINSTALL"/>
+    <SetProperty Id="ARPNOREPAIR" Value="{}" Sequence="ui" Before="CostInitialize"
+                 Condition="Installed"/>
 
     <!-- Public property for silent installs:
            msiexec /i certkit-agent.msi /qn REGISTRATIONKEY="app.xxxx"
