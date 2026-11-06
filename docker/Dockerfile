@@ -11,9 +11,10 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 
-# TARGETARCH is set by buildx per platform (amd64 / arm64); default keeps
-# plain `docker build` working.
-ARG TARGETARCH=amd64
+# TARGETARCH is set automatically by BuildKit per target platform (amd64 /
+# arm64). It must be declared WITHOUT a default: a default value overrides the
+# automatic one, which would build every platform's binary with a single arch.
+ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" \
     -o /out/certkit-agent ./cmd/certkit-agent
