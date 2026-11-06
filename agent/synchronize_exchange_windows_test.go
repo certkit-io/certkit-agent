@@ -77,6 +77,9 @@ func TestBuildExchangeScriptIncludesConnectorBlock(t *testing.T) {
 		"Set-SendConnector -Identity $conn.Identity -TlsCertificateName $newTls",
 		`'(?i)^<I>(.*)<S>(.*)$'`,
 		`"<I>$($cert.Issuer)<S>$($cert.Subject)"`,
+		// Connectors are matched on the subject's CN, not the whole subject.
+		`'(?i)(?:^|,)\s*CN=([^,]*)'`,
+		"(Get-SubjectMatchName $Matches[2]) -ne $newMatchName",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("script missing %q:\n%s", want, script)

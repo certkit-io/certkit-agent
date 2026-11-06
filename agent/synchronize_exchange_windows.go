@@ -101,12 +101,22 @@ if ($missingServices.Count -eq 0) {
 
 // exchangeConnectorScript refreshes TlsCertificateName on Send/Receive
 // connectors, and on the HybridConfiguration, after the certificate is
-// enabled for SMTP.
+// enabled for SMTP. Connectors are matched on the subject's CN, so they follow
+// the certificate through a new issuer and through a changed subject with the
+// same CN (e.g. a DV certificate replaced by an OV one).
 const exchangeConnectorScript = `
+# The name a TlsCertificateName subject is matched on: its CN, whatever else
+# the subject says. A subject without a CN is matched whole.
+function Get-SubjectMatchName([string]$subject) {
+    if ($subject -match '(?i)(?:^|,)\s*CN=([^,]*)') { return $Matches[1].Trim() }
+    return ($subject -replace ',\s+', ',').Trim()
+}
+
 $cert = Get-ExchangeCertificate -Thumbprint $thumb
 $newTls = "<I>$($cert.Issuer)<S>$($cert.Subject)"
-# Comparison-only normalization; the value written is always the exact $newTls.
-$newSubjectCmp = ($cert.Subject -replace ',\s+', ',').Trim()
+# Comparison-only values; the value written is always the exact $newTls.
+# PowerShell's -eq/-ne compare strings case-insensitively.
+$newMatchName = Get-SubjectMatchName $cert.Subject
 $newTlsCmp = ($newTls -replace ',\s+', ',').Trim()
 
 $updated = @()
@@ -130,9 +140,7 @@ foreach ($t in $targets) {
         $unparsed += "$kind '$($conn.Name)'"
         continue
     }
-    $subjectCmp = ($Matches[2] -replace ',\s+', ',').Trim()
-
-    if ($subjectCmp -ne $newSubjectCmp) { $otherCert++; continue }
+    if ((Get-SubjectMatchName $Matches[2]) -ne $newMatchName) { $otherCert++; continue }
     if (($existing -replace ',\s+', ',').Trim() -eq $newTlsCmp) { $alreadyCurrent++; continue }
 
     try {
@@ -149,14 +157,14 @@ foreach ($t in $targets) {
 }
 
 # The organization-wide HybridConfiguration carries its own issuer+subject
-# TlsCertificateName; refresh it the same way as the connectors.
+# TlsCertificateName; refresh it the same way as the connectors (CN match).
 if (Get-Command Get-HybridConfiguration -ErrorAction SilentlyContinue) {
     $hybrid = Get-HybridConfiguration -ErrorAction SilentlyContinue
     $hybridTls = if ($hybrid) { ([string]$hybrid.TlsCertificateName).Trim() } else { '' }
     if ($hybridTls -match '(?i)^<I>(.*)<S>(.*)$') {
-        $hybridSubjectCmp = ($Matches[2] -replace ',\s+', ',').Trim()
+        $hybridMatchName = Get-SubjectMatchName $Matches[2]
         $hybridTlsCmp = ($hybridTls -replace ',\s+', ',').Trim()
-        if ($hybridSubjectCmp -eq $newSubjectCmp -and $hybridTlsCmp -ne $newTlsCmp) {
+        if ($hybridMatchName -eq $newMatchName -and $hybridTlsCmp -ne $newTlsCmp) {
             try {
                 Set-HybridConfiguration -TlsCertificateName $newTls
                 Write-Host "Updated HybridConfiguration TLS certificate to $newTls"
@@ -175,5 +183,5 @@ if ($unparsed.Count -gt 0) {
 if ($failed.Count -gt 0) {
     throw "The certificate was enabled, but updating TlsCertificateName failed on: $($failed -join '; ')"
 }
-Write-Host "DONE  |  connectors: $($updated.Count) updated, $alreadyCurrent already current, $otherCert bound to a different certificate"
+Write-Host "DONE  |  connectors: $($updated.Count) updated, $alreadyCurrent already current, $otherCert bound to a certificate for a different name"
 `
