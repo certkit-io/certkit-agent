@@ -2,7 +2,8 @@ name: docker
 
 # Builds and pushes ghcr.io/certkit-io/certkit-agent.
 #
-# - Tag push (v*): Pushes :vX.Y.Z, :X.Y.Z, :X.Y and (for non-prerelease tags) :latest.
+# - Non-pre-release publication or promotion: Pushes :vX.Y.Z, :X.Y.Z, :X.Y
+#   and :latest. Publishing a pre-release does not build an image.
 # - Manual (workflow_dispatch): rebuild and push from any ref without cutting
 #   a release, e.g. to ship a Dockerfile-only change:
 #
@@ -12,9 +13,8 @@ name: docker
 #   Only the single image tag given in `tag` is pushed.
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [released]
   workflow_dispatch:
     inputs:
       tag:
@@ -51,12 +51,12 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            # Tag push: version tags, plus :latest for stable releases only
-            # (prerelease tags like v1.14.0-alpha must not move :latest).
-            type=ref,event=tag,enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(github.ref_name, '-') }}
+            # The released event only fires for non-pre-releases, including
+            # pre-releases promoted to full releases, regardless of tag suffix.
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
             # Manual run: exactly the requested tag.
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 

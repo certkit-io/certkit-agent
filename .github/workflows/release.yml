@@ -16,8 +16,9 @@ run-name: release ${{ inputs.tag }}
 #      It attaches the assets to the draft with that tag (or creates the draft,
 #      with generated notes, if there is none) and points the draft at the
 #      commit that was built.
-#   3. Publish the draft. GitHub creates the tag at that commit, and the tag
-#      push triggers docker.yml to build and push the image.
+#   3. Publish the draft. GitHub creates the tag at that commit. Publishing a
+#      non-pre-release triggers docker.yml to build and push the image; a
+#      pre-release waits until it is promoted to a full release.
 #
 # Pushing a tag by hand no longer builds release assets; run this workflow
 # with that tag instead (--ref vX.Y.Z builds the tagged commit).
