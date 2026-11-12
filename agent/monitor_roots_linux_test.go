@@ -79,3 +79,35 @@ func TestFreshSystemRoots_NothingReadableReturnsNil(t *testing.T) {
 		t.Fatal("expected nil so Verify falls back to the cached system pool, not an empty pool")
 	}
 }
+
+// A server's own full-chain PEM in /etc/pki/tls/certs (the RHEL convention)
+// must not make the leaf a trust anchor: Verify would return just [leaf] and
+// the private CA root would never reach the reported chain.
+func TestFreshSystemRoots_SkipsCaIssuedLeavesInCertDirectories(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "bundle.pem")
+	certsDir := filepath.Join(dir, "certs")
+	if err := os.Mkdir(certsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("SSL_CERT_FILE", bundlePath)
+	t.Setenv("SSL_CERT_DIR", certsDir)
+
+	_, leaf, ca := newCaSignedCert(t, []net.IP{net.ParseIP("127.0.0.1")})
+	writeBundle(t, bundlePath, ca)
+	writeBundle(t, filepath.Join(certsDir, "server.crt"), leaf, ca)
+
+	pool := freshSystemRoots()
+	if pool == nil {
+		t.Fatal("expected a pool")
+	}
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: pool})
+	if err != nil {
+		t.Fatalf("leaf should verify through its CA: %v", err)
+	}
+	for _, chain := range chains {
+		if len(chain) == 1 {
+			t.Fatal("leaf was trusted as its own anchor; it must not be in the root pool")
+		}
+	}
+}

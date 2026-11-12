@@ -3,7 +3,9 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"strings"
 )
@@ -69,7 +71,7 @@ func freshSystemRoots() *x509.CertPool {
 			}
 			// The pool de-duplicates by content, so bundle/symlink overlap
 			// within these directories is harmless.
-			if pool.AppendCertsFromPEM(data) {
+			if appendCACertsFromPEM(pool, data) {
 				loaded = true
 			}
 		}
@@ -79,4 +81,33 @@ func freshSystemRoots() *x509.CertPool {
 		return nil
 	}
 	return pool
+}
+
+// appendCACertsFromPEM is AppendCertsFromPEM minus CA-issued leaf
+// certificates. /etc/pki/tls/certs is also where RHEL keeps server
+// certificates (nginx, Apache), and a leaf in the root pool makes Verify
+// return just [leaf] without building the chain to the private CA root.
+// Self-signed certificates are kept: they can only anchor themselves.
+func appendCACertsFromPEM(pool *x509.CertPool, data []byte) bool {
+	added := false
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return added
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		selfSigned := bytes.Equal(cert.RawSubject, cert.RawIssuer)
+		if !cert.IsCA && !selfSigned {
+			continue
+		}
+		pool.AddCert(cert)
+		added = true
+	}
 }
