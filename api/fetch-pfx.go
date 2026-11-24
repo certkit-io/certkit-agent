@@ -42,7 +42,7 @@ func FetchPfx(configurationId string, certificateId string) (*FetchPfxResponse, 
 		client = ksClient
 		baseURL = GetKeystoreHost()
 	} else {
-		client = newHTTPClient()
+		client = apiClient
 	}
 
 	req, err := http.NewRequest(

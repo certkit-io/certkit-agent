@@ -90,7 +90,7 @@ func RegisterAgent() (*RegisterAgentResponse, error) {
 	// Required for JSON
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := doRequest(newHTTPClient(), req)
+	resp, err := doRequest(apiClient, req)
 	if err != nil {
 		return nil, err
 	}

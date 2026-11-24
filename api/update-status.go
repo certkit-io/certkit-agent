@@ -74,7 +74,7 @@ func updateConfigStatusOnce(updates []AgentConfigStatusUpdate) error {
 		return fmt.Errorf("sign request: %w", err)
 	}
 
-	resp, err := doRequest(newHTTPClient(), req)
+	resp, err := doRequest(apiClient, req)
 	if err != nil {
 		return err
 	}

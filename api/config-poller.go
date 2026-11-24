@@ -176,7 +176,7 @@ func PollForConfiguration(forceFullSync bool) (*ConfigurationPollResponse, error
 		return nil, fmt.Errorf("sign request: %w", err)
 	}
 
-	resp, err := doRequest(newHTTPClient(), req)
+	resp, err := doRequest(apiClient, req)
 	if err != nil {
 		return nil, err
 	}

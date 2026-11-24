@@ -48,7 +48,7 @@ func FetchCertificate(configurationId string, certificateId string) (*FetchCerti
 		client = ksClient
 		baseURL = GetKeystoreHost()
 	} else {
-		client = newHTTPClient()
+		client = apiClient
 	}
 
 	req, err := http.NewRequest(

@@ -59,7 +59,7 @@ func UpdateInventory(items []InventoryItem) error {
 		return fmt.Errorf("sign request: %w", err)
 	}
 
-	resp, err := doRequest(newHTTPClient(), req)
+	resp, err := doRequest(apiClient, req)
 	if err != nil {
 		return err
 	}

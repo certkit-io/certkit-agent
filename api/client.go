@@ -21,6 +21,11 @@ const (
 	// firewall silently dropping packets
 	dialTimeout = 5 * time.Second
 
+	// idleConnTimeout is how long an unused connection is kept open for reuse
+	// before the agent closes it. It must stay longer than the 30 second poll
+	// interval, or every poll would open a new connection.
+	idleConnTimeout = 90 * time.Second
+
 	// maxRetries is how many more times a failed status update is tried before
 	// its error is returned, waiting retryDelay before each retry;
 	maxRetries = 10
@@ -37,10 +42,18 @@ func newAPITransport(tlsCfg *tls.Config) *http.Transport {
 		TLSHandshakeTimeout:   dialTimeout,
 		ResponseHeaderTimeout: requestTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       idleConnTimeout,
 	}
 }
 
-// newHTTPClient returns the default HTTP client used for API requests.
+// apiClient is the HTTP client used for every CertKit API request. It is
+// created once and shared so that requests reuse one connection. Building a
+// client per request left a new idle connection open after each request, and
+// each one stayed open until the server timed it out.
+var apiClient = newHTTPClient()
+
+// newHTTPClient builds the HTTP client used for API requests. Requests should
+// use the shared apiClient rather than building their own.
 func newHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout:   requestTimeout,
