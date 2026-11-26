@@ -7,3 +7,4 @@
 /dev/**/*.vhd
 /dev/**/*.avhd
 .claude/settings.local.json
+.opencode/
